@@ -58,7 +58,7 @@ export class TankMatch {
   tankCount: number;
 
   /** Cuántos cofres de cada clase saldrán durante la partida. */
-  chests: Record<'life' | 'defense' | 'attack', number>;
+  chests: Record<'life' | 'defense' | 'attack' | 'speed', number>;
 
   players: TankPlayer[] = [];
   status: MatchStatus = 'lobby';
@@ -80,7 +80,7 @@ export class TankMatch {
   constructor(
     id: string,
     tankCount: number,
-    chests: Partial<Record<'life' | 'defense' | 'attack', number>> = {},
+    chests: Partial<Record<'life' | 'defense' | 'attack' | 'speed', number>> = {},
   ) {
     this.id = id;
     this.tankCount = clampTanks(tankCount);
@@ -88,6 +88,7 @@ export class TankMatch {
       life: clampChests(chests.life ?? ARENA.defaultChests.life),
       defense: clampChests(chests.defense ?? ARENA.defaultChests.defense),
       attack: clampChests(chests.attack ?? ARENA.defaultChests.attack),
+      speed: clampChests(chests.speed ?? ARENA.defaultChests.speed),
     };
   }
 
@@ -146,7 +147,9 @@ export class TankMatch {
 
   setChestCount(token: string, kind: string, count: number): boolean {
     if (this.status !== 'lobby' || this.hostToken !== token) return false;
-    if (kind !== 'life' && kind !== 'defense' && kind !== 'attack') return false;
+    if (kind !== 'life' && kind !== 'defense' && kind !== 'attack' && kind !== 'speed') {
+      return false;
+    }
     this.chests[kind] = clampChests(count);
     return true;
   }

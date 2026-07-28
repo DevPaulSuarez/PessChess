@@ -42,6 +42,7 @@ export class TankServer {
           life: Number(payload?.chests?.life),
           defense: Number(payload?.chests?.defense),
           attack: Number(payload?.chests?.attack),
+          speed: Number(payload?.chests?.speed),
         },
       );
       this.matches.set(match.id, match);
@@ -183,6 +184,7 @@ export class TankServer {
       maxHp: tank.maxHp,
       attack: tank.attack,
       defense: tank.defense,
+      speed: Math.round(tank.speed * 10) / 10,
       alive: tank.alive,
       // Para pintar la barra de carga del propio jugador.
       charging: tank.charging ?? 0,

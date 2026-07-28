@@ -15,6 +15,7 @@ class TankView {
     required this.maxHp,
     required this.attack,
     required this.defense,
+    this.speed = 6,
     required this.alive,
     required this.kills,
     required this.upgrades,
@@ -35,6 +36,9 @@ class TankView {
   final int maxHp;
   final int attack;
   final int defense;
+
+  /// Celdas por segundo; sube con los cofres rosas.
+  final double speed;
   final bool alive;
   final int kills;
 
@@ -64,6 +68,7 @@ class TankView {
         maxHp: json['maxHp'] as int,
         attack: json['attack'] as int,
         defense: json['defense'] as int,
+        speed: (json['speed'] as num?)?.toDouble() ?? 6,
         alive: json['alive'] as bool,
         kills: json['kills'] as int,
         upgrades: json['upgrades'] as int,

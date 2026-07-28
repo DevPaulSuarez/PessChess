@@ -19,10 +19,10 @@ export interface TankInput {
   firing: boolean;
 }
 
-export type Upgrade = 'life' | 'defense' | 'attack';
+export type Upgrade = 'life' | 'defense' | 'attack' | 'speed';
 
 /** Lo que sueltan los cofres que aparecen por el campo. */
-export type PickupKind = 'life' | 'defense' | 'attack';
+export type PickupKind = 'life' | 'defense' | 'attack' | 'speed';
 
 export interface Pickup {
   id: number;
@@ -46,6 +46,8 @@ export interface Tank {
   maxHp: number;
   attack: number;
   defense: number;
+  /** Celdas por segundo. Sube con los cofres de velocidad. */
+  speed: number;
   alive: boolean;
   /** Milisegundos que faltan para poder volver a disparar. */
   cooldown: number;
@@ -107,6 +109,9 @@ export const ARENA = {
    */
   tankSize: BLOCK_SIZE,
   tankSpeed: 6, // celdas por segundo
+  /** Lo que suma cada cofre de velocidad, y hasta dónde se puede llegar. */
+  speedStep: 1.2,
+  maxSpeed: 11,
   bulletSpeed: 18,
   /**
    * Recarga entre disparos. El cargado tarda más en volver: si no, saldría a
@@ -120,13 +125,15 @@ export const ARENA = {
   revealMs: 1500,
   /** Cuánto sigue patinando un tanque al salir del hielo. */
   slideMs: 450,
+  /** Lo que empuja el hielo: sobre él el tanque va más suelto. */
+  iceBoost: 1.6,
   /** Tras salir de un portal, no vuelve a teletransportarse en este tiempo. */
   teleportCooldownMs: 2000,
   /** Cada cuánto sale un cofre y cuánto aguanta antes de reventar. */
   pickupEveryMs: 9000,
   pickupHp: 3,
   /** Cuántos cofres de cada clase salen si no se dice otra cosa. */
-  defaultChests: { life: 2, defense: 2, attack: 2 },
+  defaultChests: { life: 2, defense: 2, attack: 2, speed: 2 },
   /** Vida y blindaje con los que empieza el tanque de un jugador. */
   startingHp: 5,
   startingDefense: 2,
@@ -196,7 +203,7 @@ export class Arena {
 
     // La lista de cofres pendientes se baraja: si salieran todos los de vida
     // primero y luego los de escudo, sería previsible y aburrido.
-    for (const kind of ['life', 'defense', 'attack'] as const) {
+    for (const kind of ['life', 'defense', 'attack', 'speed'] as const) {
       const count = Math.max(0, Math.round(chests[kind] ?? 0));
       for (let i = 0; i < count; i++) this.chestQueue.push(kind);
     }
@@ -225,6 +232,7 @@ export class Arena {
         maxHp: hp,
         attack: 1,
         defense: isCpu ? 0 : ARENA.startingDefense,
+        speed: ARENA.tankSpeed,
         alive: true,
         cooldown: 0,
         charging: null,
@@ -266,6 +274,9 @@ export class Arena {
       case 'attack':
         tank.attack++;
         break;
+      case 'speed':
+        tank.speed = Math.min(ARENA.maxSpeed, tank.speed + ARENA.speedStep);
+        break;
     }
     return true;
   }
@@ -291,15 +302,18 @@ export class Arena {
 
       tank.teleportCooldown = Math.max(0, tank.teleportCooldown - deltaMs);
 
+      // Sobre hielo el tanque va más suelto y no se para en seco.
+      const onIce = this.terrainUnder(tank) === 5;
+      const speed = tank.speed * (onIce ? ARENA.iceBoost : 1);
+
       if (input.dir) {
         tank.dir = input.dir;
-        this.moveTank(tank, input.dir, ARENA.tankSpeed * dt);
+        this.moveTank(tank, input.dir, speed * dt);
         this.maybeTeleport(tank);
-        // Sobre hielo el tanque coge carrerilla y no se para en seco.
         tank.sliding = this.terrainUnder(tank) === 5 ? ARENA.slideMs : 0;
       } else if (tank.sliding > 0) {
         tank.sliding = Math.max(0, tank.sliding - deltaMs);
-        this.moveTank(tank, tank.dir, ARENA.tankSpeed * dt);
+        this.moveTank(tank, tank.dir, speed * dt);
         this.maybeTeleport(tank);
       }
       this.handleTrigger(tank, input.firing, deltaMs);
@@ -598,7 +612,7 @@ export class Arena {
     // Derribar da premio al momento y al azar. Antes había que elegir entre tres
     // botones, pero interrumpía la batalla para nada: ahora sale solo.
     if (shooter.playerId !== null) {
-      const kinds: PickupKind[] = ['life', 'defense', 'attack'];
+      const kinds: PickupKind[] = ['life', 'defense', 'attack', 'speed'];
       this.lastReward = kinds[this.random(kinds.length)];
       this.grant(shooter, this.lastReward);
     }
@@ -672,6 +686,11 @@ export class Arena {
         break;
       case 'attack':
         tank.attack++;
+        break;
+      case 'speed':
+        // Con techo: un tanque demasiado rápido se vuelve incontrolable y
+        // atraviesa los pasillos sin darte tiempo a girar.
+        tank.speed = Math.min(ARENA.maxSpeed, tank.speed + ARENA.speedStep);
         break;
     }
   }

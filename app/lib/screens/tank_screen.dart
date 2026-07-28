@@ -24,7 +24,7 @@ class _TankScreenState extends State<TankScreen> {
   final _nameController = TextEditingController();
   final _codeController = TextEditingController();
   int _tankCount = 4;
-  final _chests = {'life': 2, 'defense': 2, 'attack': 2};
+  final _chests = {'life': 2, 'defense': 2, 'attack': 2, 'speed': 2};
 
   /// Lo que el jugador tiene pulsado ahora mismo.
   String? _direction;
@@ -168,6 +168,7 @@ class _TankScreenState extends State<TankScreen> {
                     ('life', 'Vida', Color(0xFF2FBF71)),
                     ('defense', 'Escudo', Color(0xFF3A86FF)),
                     ('attack', 'Arma', Color(0xFFFFBE0B)),
+                    ('speed', 'Velocidad', Color(0xFFF15BB5)),
                   ])
                     Row(
                       children: [
@@ -381,9 +382,10 @@ class _TankScreenState extends State<TankScreen> {
                   Padding(
                     padding: const EdgeInsets.only(top: 8),
                     child: Text(
-                        'Cofres: ${lobby.chests['life'] ?? 0} de vida, '
-                        '${lobby.chests['defense'] ?? 0} de escudo, '
-                        '${lobby.chests['attack'] ?? 0} de arma',
+                        'Cofres: ${lobby.chests['life'] ?? 0} vida, '
+                        '${lobby.chests['defense'] ?? 0} escudo, '
+                        '${lobby.chests['attack'] ?? 0} arma, '
+                        '${lobby.chests['speed'] ?? 0} velocidad',
                         style: theme.textTheme.bodySmall
                             ?.copyWith(color: Colors.white60)),
                   ),
@@ -476,7 +478,7 @@ class _TankScreenState extends State<TankScreen> {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                    TankPad(direction: _direction, onDirection: _press),
+                    TankJoystick(direction: _direction, onDirection: _press),
                     FireButton(firing: _firing, onFiring: _setFiring),
                   ],
                 ),
@@ -526,7 +528,8 @@ class _Scoreboard extends StatelessWidget {
                             const SizedBox(width: 6),
                             Text(
                               '${tank.name}  ${tank.hp}/${tank.maxHp}'
-                              '  ⚔${tank.attack} 🛡${tank.defense}',
+                              '  ⚔${tank.attack} 🛡${tank.defense}'
+                              '  »${tank.speed.toStringAsFixed(0)}',
                               style: const TextStyle(fontSize: 12),
                             ),
                           ],

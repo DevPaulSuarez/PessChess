@@ -344,8 +344,9 @@ console.log('\nCofres:');
   advance(arena, ARENA.pickupEveryMs + 200);
   check('aparecen solos con el tiempo', arena.pickups.length === 1, `${arena.pickups.length}`);
   check('con tres de vida', arena.pickups[0]?.hp === 3, `${arena.pickups[0]?.hp}`);
-  check('y dan una de las tres cosas',
-    ['life', 'defense', 'attack'].includes(arena.pickups[0]?.kind), arena.pickups[0]?.kind);
+  check('y dan una de las cuatro cosas',
+    ['life', 'defense', 'attack', 'speed'].includes(arena.pickups[0]?.kind),
+    arena.pickups[0]?.kind);
 
   advance(arena, ARENA.pickupEveryMs * 8);
   check('solo salen los que fijó la sala', arena.pickups.length === 2, `${arena.pickups.length}`);
@@ -502,6 +503,43 @@ console.log('\nEl acero cede solo con un arma de 4:');
     `${arena.walls[13][8]}`);
 }
 
+console.log('\nCofre de velocidad:');
+{
+  const { arena, a } = duel();
+  const velocidad = a.speed;
+  arena.pickups.push({ id: 70, kind: 'speed', x: 9, y: 13, hp: 1 });
+  tapFire(arena, 't1');
+  advance(arena, 500);
+  check('el cofre de velocidad acelera el tanque', a.speed > velocidad,
+    `${velocidad} -> ${a.speed}`);
+}
+
+{
+  const { arena, a } = duel();
+  // Aunque llegue disparado, la velocidad no se desmadra.
+  a.speed = 100;
+  arena.pickups.push({ id: 71, kind: 'speed', x: 9, y: 13, hp: 1 });
+  tapFire(arena, 't1');
+  advance(arena, 500);
+  check('la velocidad tiene techo', a.speed <= ARENA.maxSpeed, `${a.speed}`);
+}
+
+{
+  const { arena, a } = duel();
+  a.speed = ARENA.tankSpeed * 2;
+  const x0 = a.x;
+  arena.setInput('t1', { dir: 'right', firing: false });
+  advance(arena, 300);
+  const rapido = a.x - x0;
+
+  const otro = duel();
+  otro.arena.setInput('t1', { dir: 'right', firing: false });
+  advance(otro.arena, 300);
+  const normal = otro.a.x - 5;
+  check('un tanque acelerado recorre más', rapido > normal * 1.5,
+    `${rapido.toFixed(1)} vs ${normal.toFixed(1)}`);
+}
+
 console.log('\nDerribar un plomo da premio:');
 {
   const arena = new Arena(
@@ -517,33 +555,36 @@ console.log('\nDerribar un plomo da premio:');
   jugador.x = 5; jugador.y = 13; jugador.dir = 'right';
   maquina.x = 9; maquina.y = 13; maquina.hp = 1;
 
-  const antes = jugador.hp + jugador.maxHp + jugador.attack + jugador.defense;
+  const antes =
+    jugador.hp + jugador.maxHp + jugador.attack + jugador.defense + jugador.speed;
   tapFire(arena, 't1');
   advance(arena, 600);
   check('el plomo cae', maquina.alive === false);
-  check('el premio se da al momento',
-    jugador.hp + jugador.maxHp + jugador.attack + jugador.defense > antes,
-    `${antes} -> ${jugador.hp + jugador.maxHp + jugador.attack + jugador.defense}`);
-  check('y es de una de las tres clases',
-    ['life', 'defense', 'attack'].includes(arena.lastReward), arena.lastReward);
+  const ahora =
+    jugador.hp + jugador.maxHp + jugador.attack + jugador.defense + jugador.speed;
+  check('el premio se da al momento', ahora > antes, `${antes} -> ${ahora}`);
+  check('y es de una de las cuatro clases',
+    ['life', 'defense', 'attack', 'speed'].includes(arena.lastReward),
+    arena.lastReward);
 }
 
 console.log('\nDestruir da premio automático:');
 {
   const { arena, a, b } = duel();
   b.hp = 1; b.defense = 0;
-  const antes = a.hp + a.maxHp + a.attack + a.defense;
+  const total = () => a.hp + a.maxHp + a.attack + a.defense + a.speed;
+  const antes = total();
 
   tapFire(arena, 't1');
   advance(arena, 800);
 
   check('el tanque destruido queda fuera', b.alive === false);
   check('el que destruye suma una baja', a.kills === 1, `${a.kills}`);
-  check('el premio se aplica solo, sin preguntar',
-    a.hp + a.maxHp + a.attack + a.defense > antes,
-    `${antes} -> ${a.hp + a.maxHp + a.attack + a.defense}`);
-  check('y es de una de las tres clases',
-    ['life', 'defense', 'attack'].includes(arena.lastReward), arena.lastReward);
+  check('el premio se aplica solo, sin preguntar', total() > antes,
+    `${antes} -> ${total()}`);
+  check('y es de una de las cuatro clases',
+    ['life', 'defense', 'attack', 'speed'].includes(arena.lastReward),
+    arena.lastReward);
   check('ya no quedan mejoras que elegir a mano', a.pendingUpgrades === 0,
     `${a.pendingUpgrades}`);
 }
@@ -774,6 +815,26 @@ console.log('\nEl hielo hace patinar:');
   advance(arena, 400);
   check('en tierra firme se para en seco', Math.abs(a.x - alSoltar) < 0.01,
     `${alSoltar} -> ${a.x}`);
+}
+
+{
+  // Sobre hielo se avanza más que en tierra firme, con el mismo empujón.
+  const hielo = duel();
+  for (const y of [12, 13, 14]) {
+    for (let x = 4; x <= 16; x++) hielo.arena.walls[y][x] = 5;
+  }
+  hielo.a.x = 5; hielo.a.y = 13;
+  hielo.arena.setInput('t1', { dir: 'right', firing: false });
+  advance(hielo.arena, 300);
+  const sobreHielo = hielo.a.x - 5;
+
+  const tierra = duel();
+  tierra.arena.setInput('t1', { dir: 'right', firing: false });
+  advance(tierra.arena, 300);
+  const sobreTierra = tierra.a.x - 5;
+
+  check('el hielo empuja más que la tierra', sobreHielo > sobreTierra * 1.3,
+    `${sobreHielo.toFixed(2)} vs ${sobreTierra.toFixed(2)}`);
 }
 
 console.log('\nBalance de las armas:');

@@ -200,6 +200,7 @@ class TankFieldPainter extends CustomPainter {
       final (color, symbol) = switch (pickup.kind) {
         'life' => (const Color(0xFF2FBF71), '+'),
         'defense' => (const Color(0xFF3A86FF), '◇'),
+        'speed' => (const Color(0xFFF15BB5), '»'),
         _ => (const Color(0xFFFFBE0B), '★'),
       };
 
@@ -397,53 +398,125 @@ class TankFieldPainter extends CustomPainter {
   bool shouldRepaint(TankFieldPainter old) => true; // cambia veinte veces por segundo
 }
 
-/// Cruceta de movimiento.
+/// Palanca de movimiento.
 ///
-/// Se eligió cruceta en vez de palanca porque los tanques solo van en cuatro
-/// direcciones: una palanca daría diagonales que el juego no puede usar.
-class TankPad extends StatelessWidget {
-  const TankPad({super.key, required this.onDirection, required this.direction});
+/// Se arrastra el pulgar desde el centro y el tanque va en esa dirección. Se
+/// queda en las cuatro direcciones aunque el dedo vaya en diagonal, porque un
+/// tanque solo puede ir en cuatro; dejar pasar la diagonal daría una sensación
+/// engañosa de que se puede.
+class TankJoystick extends StatefulWidget {
+  const TankJoystick({
+    super.key,
+    required this.onDirection,
+    required this.direction,
+    this.size = 150,
+  });
 
-  /// Se llama con la dirección pulsada, o null al soltar.
+  /// Se llama con la dirección elegida, o null al soltar.
   final void Function(String?) onDirection;
   final String? direction;
+  final double size;
+
+  @override
+  State<TankJoystick> createState() => _TankJoystickState();
+}
+
+class _TankJoystickState extends State<TankJoystick> {
+  /// Dónde está el pulgar respecto al centro. Cero cuando no se toca.
+  Offset _knob = Offset.zero;
+
+  double get _radius => widget.size / 2;
+
+  void _update(Offset local) {
+    final centre = Offset(_radius, _radius);
+    var offset = local - centre;
+
+    // El puño no se sale del aro.
+    if (offset.distance > _radius) {
+      offset = offset / offset.distance * _radius;
+    }
+    setState(() => _knob = offset);
+
+    // Una zona muerta en el centro evita que un roce mande al tanque a algún
+    // lado sin querer.
+    if (offset.distance < _radius * 0.28) {
+      widget.onDirection(null);
+      return;
+    }
+
+    final dir = offset.dx.abs() > offset.dy.abs()
+        ? (offset.dx > 0 ? 'right' : 'left')
+        : (offset.dy > 0 ? 'down' : 'up');
+    widget.onDirection(dir);
+  }
+
+  void _release() {
+    setState(() => _knob = Offset.zero);
+    widget.onDirection(null);
+  }
 
   @override
   Widget build(BuildContext context) {
-    Widget arrow(String dir, IconData icon) {
-      final active = direction == dir;
-      return Listener(
-        onPointerDown: (_) => onDirection(dir),
-        onPointerUp: (_) => onDirection(null),
-        onPointerCancel: (_) => onDirection(null),
-        child: Container(
-          width: 56,
-          height: 56,
-          decoration: BoxDecoration(
-            color: active
-                ? Colors.white.withValues(alpha: 0.35)
-                : Colors.white.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Icon(icon, size: 30),
-        ),
-      );
-    }
+    final active = widget.direction != null;
 
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        arrow('up', Icons.keyboard_arrow_up),
-        Row(
-          mainAxisSize: MainAxisSize.min,
+    return GestureDetector(
+      onPanStart: (d) => _update(d.localPosition),
+      onPanUpdate: (d) => _update(d.localPosition),
+      onPanEnd: (_) => _release(),
+      onPanCancel: _release,
+      // Un toque seco también mueve, sin tener que arrastrar.
+      onTapDown: (d) => _update(d.localPosition),
+      onTapUp: (_) => _release(),
+      onTapCancel: _release,
+      child: SizedBox(
+        width: widget.size,
+        height: widget.size,
+        child: Stack(
           children: [
-            arrow('left', Icons.keyboard_arrow_left),
-            const SizedBox(width: 56),
-            arrow('right', Icons.keyboard_arrow_right),
+            // Aro.
+            Container(
+              width: widget.size,
+              height: widget.size,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: Colors.white.withValues(alpha: 0.08),
+                border: Border.all(
+                  color: Colors.white.withValues(alpha: active ? 0.5 : 0.2),
+                  width: 2,
+                ),
+              ),
+            ),
+            // Flechas de guía, para que se entienda a la primera.
+            for (final (icon, alignment) in const [
+              (Icons.keyboard_arrow_up, Alignment.topCenter),
+              (Icons.keyboard_arrow_down, Alignment.bottomCenter),
+              (Icons.keyboard_arrow_left, Alignment.centerLeft),
+              (Icons.keyboard_arrow_right, Alignment.centerRight),
+            ])
+              Align(
+                alignment: alignment,
+                child: Padding(
+                  padding: const EdgeInsets.all(6),
+                  child: Icon(icon,
+                      size: 22, color: Colors.white.withValues(alpha: 0.35)),
+                ),
+              ),
+            // Puño.
+            Positioned(
+              left: _radius + _knob.dx - widget.size * 0.19,
+              top: _radius + _knob.dy - widget.size * 0.19,
+              child: Container(
+                width: widget.size * 0.38,
+                height: widget.size * 0.38,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.white.withValues(alpha: active ? 0.85 : 0.5),
+                ),
+              ),
+            ),
           ],
         ),
-        arrow('down', Icons.keyboard_arrow_down),
-      ],
+      ),
     );
   }
 }
