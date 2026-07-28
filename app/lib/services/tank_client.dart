@@ -73,9 +73,12 @@ class TankView {
 }
 
 class BulletView {
-  const BulletView(this.x, this.y);
+  const BulletView(this.x, this.y, {this.charged = false});
   final double x;
   final double y;
+
+  /// Los cargados se pintan distintos y revientan el acero.
+  final bool charged;
 }
 
 /// Un cofre esperando a que alguien lo pise.
@@ -277,6 +280,7 @@ class TankClient extends ChangeNotifier {
             .map((b) => BulletView(
                   ((b as Map)['x'] as num).toDouble(),
                   (b['y'] as num).toDouble(),
+                  charged: b['charged'] as bool? ?? false,
                 ))
             .toList(),
         pickups: ((json['pickups'] as List?) ?? [])

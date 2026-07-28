@@ -15,6 +15,7 @@ class TankFieldPainter extends CustomPainter {
   static const _brick = Color(0xFF9C5A3C);
   static const _steel = Color(0xFF9AA0A6);
   static const _bush = Color(0xFF2E7D32);
+  static const _water = Color(0xFF1565C0);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -67,6 +68,18 @@ class TankFieldPainter extends CustomPainter {
         if (value == 0 || value == 3) continue; // los arbustos van aparte
 
         final rect = Rect.fromLTWH(x * cell, y * cell, cell, cell);
+        if (value == 4) {
+          // Agua: corta el paso a los tanques pero las balas la cruzan.
+          canvas.drawRect(rect, Paint()..color = _water);
+          canvas.drawLine(
+            Offset(rect.left, rect.center.dy),
+            Offset(rect.right, rect.center.dy),
+            Paint()
+              ..color = Colors.white.withValues(alpha: 0.35)
+              ..strokeWidth = cell * 0.1,
+          );
+          continue;
+        }
         canvas.drawRect(rect, value == 1 ? brick : steel);
         if (value == 1) {
           canvas.drawLine(
@@ -281,10 +294,25 @@ class TankFieldPainter extends CustomPainter {
   }
 
   void _paintBullets(Canvas canvas, double cell) {
-    final paint = Paint()..color = Colors.amberAccent;
     for (final bullet in world.bullets) {
+      final centre = Offset(bullet.x * cell, bullet.y * cell);
+
+      if (!bullet.charged) {
+        canvas.drawCircle(centre, cell * 0.18, Paint()..color = Colors.amberAccent);
+        continue;
+      }
+
+      // El cargado lleva halo y núcleo blanco: hay que distinguirlo de un
+      // vistazo, porque es el que revienta el acero.
       canvas.drawCircle(
-          Offset(bullet.x * cell, bullet.y * cell), cell * 0.18, paint);
+        centre,
+        cell * 0.55,
+        Paint()
+          ..color = const Color(0xFF7CE7FF).withValues(alpha: 0.35)
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, cell * 0.25),
+      );
+      canvas.drawCircle(centre, cell * 0.34, Paint()..color = const Color(0xFF7CE7FF));
+      canvas.drawCircle(centre, cell * 0.16, Paint()..color = Colors.white);
     }
   }
 

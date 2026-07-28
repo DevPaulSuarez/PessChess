@@ -156,6 +156,78 @@ console.log('\nDisparar:');
   check('el acero aguanta', arena.walls[13][8] === 2, `${arena.walls[13][8]}`);
 }
 
+console.log('\nImpactos consistentes en las cuatro direcciones:');
+{
+  // Un bloque de ladrillo entero delante del tanque, en cada dirección.
+  for (const [dir, tx, ty, bx, by] of [
+    ['right', 6, 13, 10, 12],
+    ['left', 16, 13, 10, 12],
+    ['down', 13, 6, 12, 10],
+    ['up', 13, 16, 12, 10],
+  ]) {
+    const arena = new Arena([{ id: 't1', playerId: 'p1', color: '#f00' }], 9, {});
+    // Campo despejado y un bloque de dos por dos a tiro.
+    for (let y = 0; y < ARENA.size; y++) {
+      for (let x = 0; x < ARENA.size; x++) arena.walls[y][x] = 0;
+    }
+    for (let dy = 0; dy < 2; dy++) {
+      for (let dx = 0; dx < 2; dx++) arena.walls[by + dy][bx + dx] = 1;
+    }
+    const t = arena.tanks[0];
+    t.x = tx; t.y = ty; t.dir = dir;
+
+    // Un disparo, sin mover el tanque.
+    tapFire(arena, 't1');
+    advance(arena, 600);
+    const rotas = [
+      arena.walls[by][bx], arena.walls[by][bx + 1],
+      arena.walls[by + 1][bx], arena.walls[by + 1][bx + 1],
+    ].filter((c) => c === 0).length;
+    check(`un disparo hacia ${dir} rompe media pared`, rotas === 2, `${rotas} celdas`);
+
+    // Y el segundo remata, sin moverse.
+    tapFire(arena, 't1');
+    advance(arena, 800);
+    const total = [
+      arena.walls[by][bx], arena.walls[by][bx + 1],
+      arena.walls[by + 1][bx], arena.walls[by + 1][bx + 1],
+    ].filter((c) => c === 0).length;
+    check(`y el segundo hacia ${dir} la termina sin moverse`, total === 4, `${total} celdas`);
+  }
+}
+
+console.log('\nAcero y agua:');
+{
+  const { arena } = duel();
+  for (const y of [12, 13, 14]) arena.walls[y][8] = 2;
+  tapFire(arena, 't1');
+  advance(arena, 600);
+  check('un disparo normal no puede con el acero', arena.walls[13][8] === 2,
+    `${arena.walls[13][8]}`);
+
+  chargedFire(arena, 't1');
+  advance(arena, 600);
+  check('el cargado sí lo revienta', arena.walls[13][8] === 0, `${arena.walls[13][8]}`);
+}
+
+{
+  const { arena, a, b } = duel();
+  for (const y of [11, 12, 13, 14, 15]) arena.walls[y][8] = 4;
+  arena.setInput('t1', { dir: 'right', firing: false });
+  advance(arena, 2000);
+  check('el agua corta el paso a los tanques', a.x < 8, `${a.x.toFixed(1)}`);
+}
+
+{
+  const { arena, b } = duel();
+  for (const y of [12, 13, 14]) arena.walls[y][8] = 4;
+  const antes = b.hp + b.defense;
+  tapFire(arena, 't1');
+  advance(arena, 900);
+  check('pero las balas la cruzan', b.hp + b.defense < antes,
+    `${antes} -> ${b.hp + b.defense}`);
+}
+
 console.log('\nArbustos:');
 {
   // Con un tanque de la máquina, que no usa los portales, se ve que el arbusto
@@ -221,6 +293,16 @@ console.log('\nVida y blindaje:');
   advance(arena, 800);
   check('un cargado atraviesa el blindaje que sobra',
     b.defense === 0 && b.hp === 4, `blindaje ${b.defense}, vida ${b.hp}`);
+}
+
+console.log('\nCuadrado a la retícula:');
+{
+  const { arena, a } = duel();
+  a.y = 13.4; // desalineado
+  arena.setInput('t1', { dir: 'right', firing: false });
+  advance(arena, 400);
+  check('al moverse se cuadra con las celdas', Number.isInteger(Math.round(a.y * 100) / 100)
+    && Math.abs(a.y - Math.round(a.y)) < 0.01, `${a.y}`);
 }
 
 console.log('\nEncajar en los pasillos:');

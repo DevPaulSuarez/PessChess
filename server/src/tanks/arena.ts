@@ -65,10 +65,19 @@ export interface Bullet {
   y: number;
   dir: Direction;
   damage: number;
+  /** Los cargados revientan el acero y se pintan distintos. */
+  charged: boolean;
 }
 
-/** 0 vacío, 1 ladrillo (se rompe), 2 acero (no se rompe), 3 arbusto. */
-export type Cell = 0 | 1 | 2 | 3;
+/**
+ * El terreno, celda a celda:
+ *  0 vacío
+ *  1 ladrillo — se rompe a tiros, por trozos
+ *  2 acero    — solo lo revienta un disparo cargado
+ *  3 arbusto  — no frena a nadie; tapa a quien se meta
+ *  4 agua     — corta el paso a los tanques, pero las balas la cruzan
+ */
+export type Cell = 0 | 1 | 2 | 3 | 4;
 
 const BLOCK_ORIGIN = 2;
 const BLOCK_SIZE = 2;
@@ -266,38 +275,40 @@ export class Arena {
     if (tank.charging === null) return;
     const charged = tank.charging >= ARENA.chargeMs;
     tank.charging = null;
-    this.fire(tank, charged ? tank.attack + 1 : tank.attack);
+    // El cargado solo cuenta si la barra llegó al final; si se suelta antes,
+    // sale un disparo normal y la carga se pierde.
+    this.fire(tank, charged ? tank.attack + 1 : tank.attack, charged);
   }
 
+  /**
+   * Mueve el tanque pegándolo a la cuadrícula.
+   *
+   * El eje por el que no se avanza se cuadra con las celdas, como en el Battle
+   * City original. Eso es lo que hace que los disparos salgan siempre por el
+   * mismo sitio y que entrar en un pasillo no dependa de acertar al milímetro:
+   * sin esto, el tanque quedaba a medio camino entre dos filas y las balas
+   * impactaban de formas distintas según cómo vinieras.
+   */
   private moveTank(tank: Tank, dir: Direction, distance: number): void {
     const [dx, dy] = VECTORS[dir];
+    const horizontal = dx !== 0;
+
+    // Primero cuadrar el eje transversal.
+    const current = horizontal ? tank.y : tank.x;
+    const aligned = Math.round(current);
+    if (current !== aligned) {
+      const step = Math.min(distance, Math.abs(aligned - current));
+      const nudged = current + Math.sign(aligned - current) * step;
+      const [tx, ty] = horizontal ? [tank.x, nudged] : [nudged, tank.y];
+      if (this.tankFits(tank, tx, ty)) {
+        tank.x = tx;
+        tank.y = ty;
+      }
+    }
+
     if (this.tankFits(tank, tank.x + dx * distance, tank.y + dy * distance)) {
       tank.x += dx * distance;
       tank.y += dy * distance;
-      return;
-    }
-
-    // Encaje automático. Sin esto, entrar en un pasillo obliga a alinearse casi
-    // al milímetro y el juego se vuelve frustrante: si el hueco está ahí al
-    // lado, el tanque se desliza solo hacia él.
-    const [px, py] = dx !== 0 ? [0, 1] : [1, 0];
-    for (let reach = 1; reach <= 4; reach++) {
-      for (const sign of [1, -1]) {
-        const sx = tank.x + px * sign * distance * reach;
-        const sy = tank.y + py * sign * distance * reach;
-        if (!this.tankFits(tank, sx, sy)) continue;
-        if (!this.tankFits(tank, sx + dx * distance, sy + dy * distance)) continue;
-
-        // Se avanza un solo paso hacia el pasillo, no el salto entero: así el
-        // deslizamiento se ve suave en vez de a tirones.
-        const nx = tank.x + px * sign * distance;
-        const ny = tank.y + py * sign * distance;
-        if (this.tankFits(tank, nx, ny)) {
-          tank.x = nx;
-          tank.y = ny;
-        }
-        return;
-      }
     }
   }
 
@@ -324,7 +335,7 @@ export class Arena {
     }
   }
 
-  private fire(tank: Tank, damage: number): void {
+  private fire(tank: Tank, damage: number, charged = false): void {
     if (tank.cooldown > 0) return;
     tank.cooldown = ARENA.bulletCooldown;
 
@@ -333,10 +344,14 @@ export class Arena {
     this.bullets.push({
       id: this.nextBulletId++,
       tankId: tank.id,
+      // Sale del centro exacto del cañón. Con el tanque cuadrado a la retícula,
+      // eso deja la bala justo sobre la junta entre dos celdas, y por eso al
+      // impactar rompe las dos: media pared de un tiro, mires como mires.
       x: tank.x + dx * nose,
       y: tank.y + dy * nose,
       dir: tank.dir,
       damage,
+      charged,
     });
   }
 
@@ -369,15 +384,7 @@ export class Arena {
       return false;
     }
 
-    const cx = Math.floor(bullet.x);
-    const cy = Math.floor(bullet.y);
-    const cell = this.walls[cy][cx];
-    if (cell === 1) {
-      this.walls[cy][cx] = 0; // el ladrillo se rompe
-      return false;
-    }
-    if (cell === 2) return false; // el acero aguanta
-    // Por los arbustos (3) la bala pasa de largo: solo sirven para esconderse.
+    if (this.hitTerrain(bullet)) return false;
 
     // Los cofres solo los abren los jugadores. Una bala de la máquina les pasa
     // de largo: si los reventara, echaría a perder premios que no puede usar.
@@ -409,6 +416,44 @@ export class Arena {
       }
     }
     return true;
+  }
+
+  /**
+   * Choque contra el terreno. Devuelve true si la bala se ha consumido.
+   *
+   * Se miran las dos celdas que la bala tiene a cada lado, no solo la de su
+   * punto exacto: con el tanque cuadrado a la retícula la bala viaja justo por
+   * la junta, y mirando una sola celda quedaba media pared intacta y había que
+   * mover el tanque para rematarla.
+   */
+  private hitTerrain(bullet: Bullet): boolean {
+    const horizontal = bullet.dir === 'left' || bullet.dir === 'right';
+    const along = horizontal ? bullet.x : bullet.y;
+    const across = horizontal ? bullet.y : bullet.x;
+
+    const alongCell = Math.floor(along);
+    // Las dos celdas que la junta separa. Si la bala no va por una junta, las
+    // dos cuentas caen en la misma celda y se mira una sola vez.
+    const sides = new Set([Math.floor(across - 0.01), Math.floor(across + 0.01)]);
+
+    let consumed = false;
+    for (const side of sides) {
+      const cx = horizontal ? alongCell : side;
+      const cy = horizontal ? side : alongCell;
+      const cell = this.walls[cy]?.[cx];
+      if (cell === undefined) continue;
+
+      if (cell === 1) {
+        this.walls[cy][cx] = 0; // el ladrillo se rompe por trozos
+        consumed = true;
+      } else if (cell === 2) {
+        // El acero solo cede a un disparo cargado. Es la ventaja de cargar.
+        if (bullet.charged) this.walls[cy][cx] = 0;
+        consumed = true;
+      }
+      // Arbustos (3) y agua (4) las cruza sin enterarse.
+    }
+    return consumed;
   }
 
   private damage(target: Tank, bullet: Bullet): void {
@@ -657,9 +702,9 @@ export class Arena {
 
     for (let cy = Math.floor(y - half); cy <= Math.floor(y + half - 0.001); cy++) {
       for (let cx = Math.floor(x - half); cx <= Math.floor(x + half - 0.001); cx++) {
-        // Los arbustos no estorban: se puede pasar por encima y esconderse.
+        // Los arbustos no estorban; el agua sí, aunque las balas la crucen.
         const cell = this.walls[cy]?.[cx];
-        if (cell === 1 || cell === 2) return false;
+        if (cell === 1 || cell === 2 || cell === 4) return false;
       }
     }
 
@@ -690,7 +735,8 @@ export class Arena {
           (x - BLOCK_ORIGIN) / BLOCK_STEP + (y - BLOCK_ORIGIN) / BLOCK_STEP;
         // Uno de cada tres bloques es de acero y uno de cada cinco, arbustos:
         // no frenan, pero tapan a quien se meta dentro.
-        const cell: Cell = block % 5 === 2 ? 3 : block % 3 === 0 ? 2 : 1;
+        const cell: Cell =
+          block % 7 === 4 ? 4 : block % 5 === 2 ? 3 : block % 3 === 0 ? 2 : 1;
         for (let dy = 0; dy < BLOCK_SIZE; dy++) {
           for (let dx = 0; dx < BLOCK_SIZE; dx++) {
             walls[y + dy][x + dx] = cell;

@@ -23,7 +23,11 @@ List<int> _walls(int size) {
   for (var y = 2; y + 2 <= size - 2; y += 5) {
     for (var x = 2; x + 2 <= size - 2; x += 5) {
       final block = (x - 2) ~/ 5 + (y - 2) ~/ 5;
-      final cell = block % 5 == 2 ? 3 : (block % 3 == 0 ? 2 : 1);
+      final cell = block % 7 == 4
+          ? 4
+          : block % 5 == 2
+              ? 3
+              : (block % 3 == 0 ? 2 : 1);
       for (var dy = 0; dy < 2; dy++) {
         for (var dx = 0; dx < 2; dx++) {
           walls[(y + dy) * size + (x + dx)] = cell;
@@ -80,7 +84,10 @@ void main() {
         // Este está metido en un arbusto: debe quedar tapado.
         _tank(id: 't3', color: 0xFF8E8E93, x: 11.5, y: 11.5, dir: 'left', hp: 1),
       ],
-      bullets: const [BulletView(13, 9), BulletView(5, 15)],
+      bullets: const [
+        BulletView(13, 9),
+        BulletView(5, 15, charged: true),
+      ],
       pickups: const [
         PickupView('life', 6, 13),
         PickupView('defense', 18, 10, hp: 2),

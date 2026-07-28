@@ -189,7 +189,11 @@ export class TankServer {
       upgrades: tank.pendingUpgrades,
     }));
 
-    const bullets = arena.bullets.map((b) => ({ x: round(b.x), y: round(b.y) }));
+    const bullets = arena.bullets.map((b) => ({
+      x: round(b.x),
+      y: round(b.y),
+      charged: b.charged,
+    }));
     const pickups = arena.pickups.map((p) => ({
       kind: p.kind,
       x: round(p.x),
