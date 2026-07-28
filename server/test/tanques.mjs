@@ -799,10 +799,8 @@ console.log('\nEl hielo hace patinar:');
   advance(arena, 200);
   check('sigue avanzando tras soltar', a.x > alSoltar + 0.5, `${alSoltar.toFixed(1)} -> ${a.x.toFixed(1)}`);
 
-  advance(arena, ARENA.slideMs + 200);
-  const parado = a.x;
-  advance(arena, 300);
-  check('pero acaba parándose', Math.abs(a.x - parado) < 0.01, `${parado} -> ${a.x}`);
+  // No se comprueba que acabe parándose porque en el hielo, precisamente, no
+  // se para: derrapa y se va solo. Eso se mira en tierra firme.
 }
 
 {
@@ -818,23 +816,38 @@ console.log('\nEl hielo hace patinar:');
 }
 
 {
-  // Sobre hielo se avanza más que en tierra firme, con el mismo empujón.
-  const hielo = duel();
-  for (const y of [12, 13, 14]) {
-    for (let x = 4; x <= 16; x++) hielo.arena.walls[y][x] = 5;
+  // Sobre una pista de hielo, empujando siempre hacia la derecha, el tanque
+  // acaba yéndose por su cuenta: derrapa.
+  const arena = new Arena([{ id: 't1', playerId: 'p1', color: '#f00' }], 13, {});
+  for (let y = 0; y < ARENA.size; y++) {
+    for (let x = 0; x < ARENA.size; x++) arena.walls[y][x] = 5;
   }
-  hielo.a.x = 5; hielo.a.y = 13;
-  hielo.arena.setInput('t1', { dir: 'right', firing: false });
-  advance(hielo.arena, 300);
-  const sobreHielo = hielo.a.x - 5;
+  const t = arena.tanks[0];
+  t.x = 13; t.y = 13;
 
-  const tierra = duel();
-  tierra.arena.setInput('t1', { dir: 'right', firing: false });
-  advance(tierra.arena, 300);
-  const sobreTierra = tierra.a.x - 5;
+  arena.setInput('t1', { dir: 'right', firing: false });
+  const direcciones = new Set();
+  let seDesvió = false;
+  for (let ms = 0; ms < 6000; ms += ARENA.tickMs) {
+    arena.tick(ARENA.tickMs);
+    direcciones.add(t.dir);
+    // Hay que mirarlo por el camino: al recuperar el control, el tanque se
+    // vuelve a cuadrar con la retícula y acaba en la misma fila de salida.
+    if (Math.abs(t.y - 13) > 0.3) seDesvió = true;
+  }
+  check('en el hielo el tanque se va solo a otras direcciones',
+    direcciones.size > 1, [...direcciones].join());
+  check('y llega a salirse de su carril', seDesvió, `${t.y}`);
+}
 
-  check('el hielo empuja más que la tierra', sobreHielo > sobreTierra * 1.3,
-    `${sobreHielo.toFixed(2)} vs ${sobreTierra.toFixed(2)}`);
+{
+  // En tierra firme, empujando a la derecha, va recto y punto.
+  const { arena, a } = duel();
+  arena.setInput('t1', { dir: 'right', firing: false });
+  const y0 = a.y;
+  advance(arena, 1000);
+  check('en tierra firme no derrapa', a.y === y0 && a.dir === 'right',
+    `${a.dir} y=${a.y}`);
 }
 
 console.log('\nBalance de las armas:');

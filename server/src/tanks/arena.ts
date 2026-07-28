@@ -62,6 +62,8 @@ export interface Tank {
   lastShotAt: number;
   /** Milisegundos que le queda de patinazo sobre el hielo. */
   sliding: number;
+  /** Hasta cuándo dura el derrape en el que no obedece al mando. */
+  spinUntil: number;
 }
 
 export interface Bullet {
@@ -125,8 +127,12 @@ export const ARENA = {
   revealMs: 1500,
   /** Cuánto sigue patinando un tanque al salir del hielo. */
   slideMs: 450,
-  /** Lo que empuja el hielo: sobre él el tanque va más suelto. */
-  iceBoost: 1.6,
+  /**
+   * Sobre hielo el tanque derrapa: cada tanto se va solo hacia donde le da la
+   * gana y durante ese rato no obedece al mando.
+   */
+  spinChance: 12,
+  spinMs: 350,
   /** Tras salir de un portal, no vuelve a teletransportarse en este tiempo. */
   teleportCooldownMs: 2000,
   /** Cada cuánto sale un cofre y cuánto aguanta antes de reventar. */
@@ -241,6 +247,7 @@ export class Arena {
         pendingUpgrades: 0,
         lastShotAt: -Infinity,
         sliding: 0,
+        spinUntil: 0,
       });
       this.clearAround(spot.x, spot.y);
     });
@@ -302,18 +309,25 @@ export class Arena {
 
       tank.teleportCooldown = Math.max(0, tank.teleportCooldown - deltaMs);
 
-      // Sobre hielo el tanque va más suelto y no se para en seco.
+      // El hielo resbala: de vez en cuando el tanque se va hacia donde le da la
+      // gana y durante ese rato no hay mando que valga.
       const onIce = this.terrainUnder(tank) === 5;
-      const speed = tank.speed * (onIce ? ARENA.iceBoost : 1);
+      if (onIce && tank.spinUntil <= this.clock && this.random(ARENA.spinChance) === 0) {
+        tank.dir = DIRECTION_LIST[this.random(DIRECTION_LIST.length)];
+        tank.spinUntil = this.clock + ARENA.spinMs;
+      }
 
-      if (input.dir) {
-        tank.dir = input.dir;
-        this.moveTank(tank, input.dir, speed * dt);
+      if (tank.spinUntil > this.clock) {
+        this.moveTank(tank, tank.dir, tank.speed * dt);
         this.maybeTeleport(tank);
-        tank.sliding = this.terrainUnder(tank) === 5 ? ARENA.slideMs : 0;
+      } else if (input.dir) {
+        tank.dir = input.dir;
+        this.moveTank(tank, input.dir, tank.speed * dt);
+        this.maybeTeleport(tank);
+        tank.sliding = onIce ? ARENA.slideMs : 0;
       } else if (tank.sliding > 0) {
         tank.sliding = Math.max(0, tank.sliding - deltaMs);
-        this.moveTank(tank, tank.dir, speed * dt);
+        this.moveTank(tank, tank.dir, tank.speed * dt);
         this.maybeTeleport(tank);
       }
       this.handleTrigger(tank, input.firing, deltaMs);
@@ -961,10 +975,17 @@ export class Arena {
     return Array.from({ length: count }, (_, i) => ring[i % ring.length]);
   }
 
-  /** Números pseudoaleatorios propios, para poder repetir una partida igual. */
+  /**
+   * Números pseudoaleatorios propios, para poder repetir una partida igual.
+   *
+   * Se usan los bits altos y no el resto de la división: en este tipo de
+   * generador los bits bajos se repiten con un ciclo cortísimo, y con `% 12`
+   * había valores que no salían nunca. Costó verlo porque parecía que el hielo
+   * simplemente no hacía nada.
+   */
   private random(max: number): number {
     this.seed = (this.seed * 1664525 + 1013904223) >>> 0;
-    return this.seed % max;
+    return Math.floor((this.seed / 4294967296) * max);
   }
 }
 
@@ -974,6 +995,8 @@ export interface ArenaEvent {
   x: number;
   y: number;
 }
+
+const DIRECTION_LIST: Direction[] = ['up', 'down', 'left', 'right'];
 
 const VECTORS: Record<Direction, [number, number]> = {
   up: [0, -1],
