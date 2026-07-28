@@ -64,6 +64,12 @@ export interface Tank {
   sliding: number;
   /** Hasta cuándo dura el derrape en el que no obedece al mando. */
   spinUntil: number;
+  /**
+   * Carril hacia el que se está corrigiendo para esquivar un bloque. Se guarda
+   * porque el trayecto dura varios instantes: recalculándolo cada vez, el
+   * tanque se quedaba oscilando sin llegar nunca.
+   */
+  steer: number | null;
 }
 
 export interface Bullet {
@@ -248,6 +254,7 @@ export class Arena {
         lastShotAt: -Infinity,
         sliding: 0,
         spinUntil: 0,
+        steer: null,
       });
       this.clearAround(spot.x, spot.y);
     });
@@ -313,7 +320,10 @@ export class Arena {
       // gana y durante ese rato no hay mando que valga.
       const onIce = this.terrainUnder(tank) === 5;
       if (onIce && tank.spinUntil <= this.clock && this.random(ARENA.spinChance) === 0) {
-        tank.dir = DIRECTION_LIST[this.random(DIRECTION_LIST.length)];
+        // Nunca hacia donde ya iba: si sigue de frente no se nota que ha
+        // derrapado, solo parece que el mando ha dejado de responder.
+        const otras = DIRECTION_LIST.filter((d) => d !== tank.dir);
+        tank.dir = otras[this.random(otras.length)];
         tank.spinUntil = this.clock + ARENA.spinMs;
       }
 
@@ -371,8 +381,11 @@ export class Arena {
     // El eje transversal se cuadra de golpe, no poco a poco. Con el pasillo
     // del mismo ancho que el tanque no hay holgura: acercarse por pasitos
     // dejaría posiciones intermedias que no caben y el tanque se atascaría.
+    // Mientras se está corrigiendo hacia otro carril no hay que cuadrar nada:
+    // el redondeo devolvería el tanque a la fila de la que intenta salir, y se
+    // quedarían peleando el uno con el otro.
     const current = horizontal ? tank.y : tank.x;
-    if (!Number.isInteger(current)) {
+    if (tank.steer === null && !Number.isInteger(current)) {
       // Se prueba la fila más cercana y, si esa no cabe, la de al lado: al
       // girar en una esquina la más cercana suele estar ocupada.
       for (const candidate of [
@@ -391,7 +404,63 @@ export class Arena {
     if (this.tankFits(tank, tank.x + dx * distance, tank.y + dy * distance)) {
       tank.x += dx * distance;
       tank.y += dy * distance;
+      tank.steer = null;
+      return;
     }
+
+    // Ayuda de esquina.
+    //
+    // Si el camino está cortado pero un poco más allá, a un lado, hay hueco
+    // para seguir, el tanque se corrige solo hacia ese carril en vez de
+    // quedarse clavado contra el canto del bloque.
+    const [px, py] = horizontal ? [0, 1] : [1, 0];
+    const across = horizontal ? tank.y : tank.x;
+
+    tank.steer ??= this.findLane(tank, dx, dy, px, py, across);
+    if (tank.steer === null) return;
+
+    const gap = tank.steer - across;
+    if (Math.abs(gap) < 0.001) {
+      tank.steer = null;
+      return;
+    }
+
+    // Se recorre poco a poco, para que se vea como un deslizamiento y no como
+    // un salto.
+    const step = Math.min(distance, Math.abs(gap)) * Math.sign(gap);
+    const nx = tank.x + px * step;
+    const ny = tank.y + py * step;
+    if (this.tankFits(tank, nx, ny)) {
+      tank.x = nx;
+      tank.y = ny;
+    } else {
+      tank.steer = null; // el carril ya no sirve; se busca otro al siguiente paso
+    }
+  }
+
+  /** El carril más cercano desde el que sí se puede seguir avanzando. */
+  private findLane(
+    tank: Tank,
+    dx: number,
+    dy: number,
+    px: number,
+    py: number,
+    current: number,
+  ): number | null {
+    for (let reach = 0.25; reach <= 3; reach += 0.25) {
+      for (const sign of [1, -1]) {
+        const target = current + sign * reach;
+        // Solo valen los carriles cuadrados con la retícula: en los de en medio
+        // el tanque no cabe en ningún pasillo.
+        if (!Number.isInteger(target)) continue;
+
+        const lane = { x: px ? target : tank.x, y: py ? target : tank.y };
+        if (!this.tankFits(tank, lane.x, lane.y)) continue;
+        if (!this.tankFits(tank, lane.x + dx, lane.y + dy)) continue;
+        return target;
+      }
+    }
+    return null;
   }
 
   /**

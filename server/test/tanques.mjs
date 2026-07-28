@@ -850,6 +850,52 @@ console.log('\nEl hielo hace patinar:');
     `${a.dir} y=${a.y}`);
 }
 
+{
+  // Bajando y topándose con hielo, nunca lo manda de nuevo hacia abajo.
+  const arena = new Arena([{ id: 't1', playerId: 'p1', color: '#f00' }], 23, {});
+  for (let y = 0; y < ARENA.size; y++) {
+    for (let x = 0; x < ARENA.size; x++) arena.walls[y][x] = 5;
+  }
+  const t = arena.tanks[0];
+  t.x = 13; t.y = 5; t.dir = 'down';
+
+  let siguióDeFrente = false;
+  let derrapes = 0;
+  let ultimoSpin = 0;
+  arena.setInput('t1', { dir: 'down', firing: false });
+  for (let ms = 0; ms < 8000; ms += ARENA.tickMs) {
+    const antes = t.dir;
+    arena.tick(ARENA.tickMs);
+    // Un derrape nuevo se reconoce porque cambia el momento en que termina.
+    if (t.spinUntil !== ultimoSpin) {
+      ultimoSpin = t.spinUntil;
+      derrapes++;
+      if (t.dir === antes) siguióDeFrente = true;
+    }
+    if (t.y > 22) { t.y = 5; t.dir = 'down'; }
+  }
+  check('el hielo derrapa varias veces', derrapes > 2, `${derrapes}`);
+  check('y nunca lo manda hacia donde ya iba', !siguióDeFrente);
+}
+
+console.log('\nAyuda de esquina:');
+{
+  const arena = new Arena([{ id: 't1', playerId: 'p1', color: '#f00' }], 27, {});
+  for (let y = 0; y < ARENA.size; y++) {
+    for (let x = 0; x < ARENA.size; x++) arena.walls[y][x] = 0;
+  }
+  // Un muro con un hueco, y el tanque llegando a la altura del canto.
+  for (let y = 0; y < ARENA.size; y++) arena.walls[y][14] = 2;
+  for (const y of [12, 13]) arena.walls[y][14] = 0;
+
+  const t = arena.tanks[0];
+  t.x = 8; t.y = 11; // una fila por encima del hueco: choca con el canto
+
+  arena.setInput('t1', { dir: 'right', firing: false });
+  advance(arena, 2500);
+  check('se corrige solo y encuentra el hueco', t.x > 15, `${t.x.toFixed(1)}`);
+}
+
 console.log('\nBalance de las armas:');
 {
   const { arena, a } = duel();
