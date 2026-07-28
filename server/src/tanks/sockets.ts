@@ -167,11 +167,19 @@ export class TankServer {
       attack: tank.attack,
       defense: tank.defense,
       alive: tank.alive,
+      // Para pintar la barra de carga del propio jugador.
+      charging: tank.charging ?? 0,
+      chargeMs: ARENA.chargeMs,
       kills: tank.kills,
       upgrades: tank.pendingUpgrades,
     }));
 
     const bullets = arena.bullets.map((b) => ({ x: round(b.x), y: round(b.y) }));
+    const pickups = arena.pickups.map((p) => ({
+      kind: p.kind,
+      x: round(p.x),
+      y: round(p.y),
+    }));
 
     for (const player of match.players) {
       if (!player.socketId) continue;
@@ -182,6 +190,7 @@ export class TankServer {
         yourTankId: match.tankIdOf(player.token) ?? null,
         tanks,
         bullets,
+        pickups,
         walls,
         winner: match.winner,
       });

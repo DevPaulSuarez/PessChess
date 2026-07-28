@@ -18,6 +18,8 @@ class TankView {
     required this.alive,
     required this.kills,
     required this.upgrades,
+    this.charging = 0,
+    this.chargeMs = 1,
   });
 
   final String id;
@@ -39,6 +41,16 @@ class TankView {
   /// Mejoras ganadas y sin gastar.
   final int upgrades;
 
+  /// Milisegundos que lleva pulsado el gatillo, y los que hacen falta.
+  final int charging;
+  final int chargeMs;
+
+  /// De 0 a 1: lo cargado que está el disparo.
+  double get chargeRatio =>
+      chargeMs <= 0 ? 0 : (charging / chargeMs).clamp(0, 1).toDouble();
+
+  bool get isCharged => charging >= chargeMs;
+
   bool get isCpu => name == null;
 
   factory TankView.fromJson(Map<String, dynamic> json) => TankView(
@@ -55,11 +67,23 @@ class TankView {
         alive: json['alive'] as bool,
         kills: json['kills'] as int,
         upgrades: json['upgrades'] as int,
+        charging: json['charging'] as int? ?? 0,
+        chargeMs: json['chargeMs'] as int? ?? 1,
       );
 }
 
 class BulletView {
   const BulletView(this.x, this.y);
+  final double x;
+  final double y;
+}
+
+/// Un cofre esperando a que alguien lo pise.
+class PickupView {
+  const PickupView(this.kind, this.x, this.y);
+
+  /// 'life', 'defense' o 'attack'.
+  final String kind;
   final double x;
   final double y;
 }
@@ -154,6 +178,7 @@ class TankWorld {
     required this.yourTankId,
     required this.tanks,
     required this.bullets,
+    required this.pickups,
     required this.walls,
     required this.winner,
   });
@@ -164,6 +189,7 @@ class TankWorld {
   final String? yourTankId;
   final List<TankView> tanks;
   final List<BulletView> bullets;
+  final List<PickupView> pickups;
 
   /// El campo, celda a celda: 0 vacío, 1 ladrillo, 2 acero.
   final List<int> walls;
@@ -239,6 +265,13 @@ class TankClient extends ChangeNotifier {
             .map((b) => BulletView(
                   ((b as Map)['x'] as num).toDouble(),
                   (b['y'] as num).toDouble(),
+                ))
+            .toList(),
+        pickups: ((json['pickups'] as List?) ?? [])
+            .map((p) => PickupView(
+                  (p as Map)['kind'] as String,
+                  (p['x'] as num).toDouble(),
+                  (p['y'] as num).toDouble(),
                 ))
             .toList(),
         walls: _walls,

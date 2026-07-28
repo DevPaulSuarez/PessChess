@@ -21,6 +21,16 @@ export interface TankInput {
 
 export type Upgrade = 'life' | 'defense' | 'attack';
 
+/** Lo que sueltan los cofres que aparecen por el campo. */
+export type PickupKind = 'life' | 'defense' | 'attack';
+
+export interface Pickup {
+  id: number;
+  kind: PickupKind;
+  x: number;
+  y: number;
+}
+
 export interface Tank {
   id: string;
   /** Null en los tanques de la máquina. */
@@ -37,6 +47,8 @@ export interface Tank {
   alive: boolean;
   /** Milisegundos que faltan para poder volver a disparar. */
   cooldown: number;
+  /** Milisegundos que lleva pulsado el disparo, o null si no está cargando. */
+  charging: number | null;
   kills: number;
   /** Mejoras ganadas por destruir tanques y aún sin gastar. */
   pendingUpgrades: number;
@@ -51,16 +63,28 @@ export interface Bullet {
   damage: number;
 }
 
-/** 0 vacío, 1 ladrillo (se rompe), 2 acero (no se rompe). */
-export type Cell = 0 | 1 | 2;
+/** 0 vacío, 1 ladrillo (se rompe), 2 acero (no se rompe), 3 arbusto. */
+export type Cell = 0 | 1 | 2 | 3;
 
 export const ARENA = {
   /** El campo es cuadrado y se mide en celdas. */
   size: 26,
-  tankSize: 1.8,
+  /**
+   * Los pasillos miden dos celdas. Con el tanque a 1.5 quedan 0.5 de holgura,
+   * suficiente para entrar sin tener que alinearse al milímetro.
+   */
+  tankSize: 1.5,
   tankSpeed: 6, // celdas por segundo
   bulletSpeed: 18,
   bulletCooldown: 400, // ms
+  /** Cuánto hay que mantener pulsado para que el disparo salga cargado. */
+  chargeMs: 550,
+  /** Cada cuánto aparece un cofre, y cuántos puede haber a la vez. */
+  pickupEveryMs: 9000,
+  maxPickups: 3,
+  /** Vida y blindaje con los que empieza cada tanque. */
+  startingHp: 5,
+  startingDefense: 2,
   /** Cada cuánto adelanta el mundo el servidor. */
   tickMs: 50,
 } as const;
@@ -78,8 +102,13 @@ export class Arena {
   readonly tanks: Tank[] = [];
   bullets: Bullet[] = [];
 
+  /** Cofres que hay ahora mismo por el campo. */
+  pickups: Pickup[] = [];
+
   private inputs = new Map<string, TankInput>();
   private nextBulletId = 1;
+  private nextPickupId = 1;
+  private sincePickup = 0;
   /** Semilla propia para que una partida se pueda repetir igual en pruebas. */
   private seed: number;
 
@@ -97,12 +126,13 @@ export class Arena {
         x: spot.x,
         y: spot.y,
         dir: spot.y < ARENA.size / 2 ? 'down' : 'up',
-        hp: 3,
-        maxHp: 3,
+        hp: ARENA.startingHp,
+        maxHp: ARENA.startingHp,
         attack: 1,
-        defense: 0,
+        defense: ARENA.startingDefense,
         alive: true,
         cooldown: 0,
+        charging: null,
         kills: 0,
         pendingUpgrades: 0,
       });
@@ -154,6 +184,10 @@ export class Arena {
       if (!tank.alive) continue;
       tank.cooldown = Math.max(0, tank.cooldown - deltaMs);
 
+      // Los cofres se recogen estés haciendo algo o no: quedarse quieto encima
+      // de uno y que no pasara nada sería desconcertante.
+      this.collectPickups(tank);
+
       const input = tank.playerId
         ? this.inputs.get(tank.id)
         : this.cpuInput(tank);
@@ -163,23 +197,62 @@ export class Arena {
         tank.dir = input.dir;
         this.moveTank(tank, input.dir, ARENA.tankSpeed * dt);
       }
-      if (input.firing) this.fire(tank);
+      this.handleTrigger(tank, input.firing, deltaMs);
     }
 
     this.moveBullets(dt);
+    this.spawnPickups(deltaMs);
+  }
+
+  /**
+   * El gatillo: al soltarlo sale el disparo. Si se mantuvo pulsado el tiempo
+   * suficiente, sale cargado y hace el doble de daño.
+   */
+  private handleTrigger(tank: Tank, firing: boolean, deltaMs: number): void {
+    if (firing) {
+      tank.charging = (tank.charging ?? 0) + deltaMs;
+      return;
+    }
+
+    if (tank.charging === null) return;
+    const charged = tank.charging >= ARENA.chargeMs;
+    tank.charging = null;
+    this.fire(tank, charged ? tank.attack + 1 : tank.attack);
   }
 
   private moveTank(tank: Tank, dir: Direction, distance: number): void {
     const [dx, dy] = VECTORS[dir];
-    const nx = tank.x + dx * distance;
-    const ny = tank.y + dy * distance;
-    if (this.tankFits(tank, nx, ny)) {
-      tank.x = nx;
-      tank.y = ny;
+    if (this.tankFits(tank, tank.x + dx * distance, tank.y + dy * distance)) {
+      tank.x += dx * distance;
+      tank.y += dy * distance;
+      return;
+    }
+
+    // Encaje automático. Sin esto, entrar en un pasillo obliga a alinearse casi
+    // al milímetro y el juego se vuelve frustrante: si el hueco está ahí al
+    // lado, el tanque se desliza solo hacia él.
+    const [px, py] = dx !== 0 ? [0, 1] : [1, 0];
+    for (let reach = 1; reach <= 4; reach++) {
+      for (const sign of [1, -1]) {
+        const sx = tank.x + px * sign * distance * reach;
+        const sy = tank.y + py * sign * distance * reach;
+        if (!this.tankFits(tank, sx, sy)) continue;
+        if (!this.tankFits(tank, sx + dx * distance, sy + dy * distance)) continue;
+
+        // Se avanza un solo paso hacia el pasillo, no el salto entero: así el
+        // deslizamiento se ve suave en vez de a tirones.
+        const nx = tank.x + px * sign * distance;
+        const ny = tank.y + py * sign * distance;
+        if (this.tankFits(tank, nx, ny)) {
+          tank.x = nx;
+          tank.y = ny;
+        }
+        return;
+      }
     }
   }
 
-  private fire(tank: Tank): void {
+  private fire(tank: Tank, damage: number): void {
     if (tank.cooldown > 0) return;
     tank.cooldown = ARENA.bulletCooldown;
 
@@ -191,7 +264,7 @@ export class Arena {
       x: tank.x + dx * nose,
       y: tank.y + dy * nose,
       dir: tank.dir,
-      damage: tank.attack,
+      damage,
     });
   }
 
@@ -232,6 +305,7 @@ export class Arena {
       return false;
     }
     if (cell === 2) return false; // el acero aguanta
+    // Por los arbustos (3) la bala pasa de largo: solo sirven para esconderse.
 
     for (const tank of this.tanks) {
       if (!tank.alive || tank.id === bullet.tankId) continue;
@@ -248,10 +322,14 @@ export class Arena {
   }
 
   private damage(target: Tank, bullet: Bullet): void {
-    // La defensa resta, pero un impacto siempre hace daño: si no, un tanque muy
-    // defendido sería invencible y la partida no acabaría nunca.
-    const dealt = Math.max(1, bullet.damage - target.defense);
-    target.hp -= dealt;
+    // La defensa es blindaje: aguanta los impactos antes de que toquen la vida,
+    // y se gasta al hacerlo. Restar daño no serviría, porque con disparos de 1 o
+    // 2 puntos una defensa de 2 haría al tanque invencible.
+    let remaining = bullet.damage;
+    const absorbed = Math.min(target.defense, remaining);
+    target.defense -= absorbed;
+    remaining -= absorbed;
+    target.hp -= remaining;
     if (target.hp > 0) return;
 
     target.alive = false;
@@ -259,6 +337,69 @@ export class Arena {
     if (shooter) {
       shooter.kills++;
       shooter.pendingUpgrades++;
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Cofres
+  // -------------------------------------------------------------------------
+
+  /**
+   * Cada cierto tiempo aparece un cofre en un hueco libre. Lo que da es al
+   * azar: más pegada, más vida o más blindaje.
+   */
+  private spawnPickups(deltaMs: number): void {
+    this.sincePickup += deltaMs;
+    if (this.sincePickup < ARENA.pickupEveryMs) return;
+    this.sincePickup = 0;
+    if (this.pickups.length >= ARENA.maxPickups) return;
+
+    // Se buscan unos cuantos sitios y se usa el primero que valga; si el campo
+    // está muy lleno, sencillamente no sale cofre esta vez.
+    for (let attempt = 0; attempt < 40; attempt++) {
+      const x = this.random(ARENA.size - 2) + 1 + 0.5;
+      const y = this.random(ARENA.size - 2) + 1 + 0.5;
+      const cell = this.walls[Math.floor(y)][Math.floor(x)];
+      if (cell === 1 || cell === 2) continue;
+      if (this.pickups.some((p) => Math.abs(p.x - x) < 2 && Math.abs(p.y - y) < 2)) {
+        continue;
+      }
+
+      const kinds: PickupKind[] = ['life', 'defense', 'attack'];
+      this.pickups.push({
+        id: this.nextPickupId++,
+        kind: kinds[this.random(kinds.length)],
+        x,
+        y,
+      });
+      return;
+    }
+  }
+
+  /** Recoge los cofres que pisa un tanque. */
+  private collectPickups(tank: Tank): void {
+    const reach = ARENA.tankSize / 2 + 0.4;
+    this.pickups = this.pickups.filter((pickup) => {
+      if (Math.abs(pickup.x - tank.x) > reach || Math.abs(pickup.y - tank.y) > reach) {
+        return true;
+      }
+      this.grant(tank, pickup.kind);
+      return false;
+    });
+  }
+
+  private grant(tank: Tank, kind: PickupKind): void {
+    switch (kind) {
+      case 'life':
+        tank.maxHp++;
+        tank.hp = Math.min(tank.maxHp, tank.hp + 2);
+        break;
+      case 'defense':
+        tank.defense++;
+        break;
+      case 'attack':
+        tank.attack++;
+        break;
     }
   }
 
@@ -341,7 +482,9 @@ export class Arena {
 
     for (let cy = Math.floor(y - half); cy <= Math.floor(y + half - 0.001); cy++) {
       for (let cx = Math.floor(x - half); cx <= Math.floor(x + half - 0.001); cx++) {
-        if (this.walls[cy]?.[cx]) return false;
+        // Los arbustos no estorban: se puede pasar por encima y esconderse.
+        const cell = this.walls[cy]?.[cx];
+        if (cell === 1 || cell === 2) return false;
       }
     }
 
@@ -369,10 +512,12 @@ export class Arena {
         // y no por coordenada: los bloques van de cuatro en cuatro, así que
         // mirar la coordenada daba siempre el mismo resto y no salía ninguno.
         const block = (x - 3) / 4 + (y - 3) / 4;
-        const steel = block % 3 === 0;
+        // Uno de cada tres bloques es de acero y uno de cada cinco, arbustos:
+        // no frenan, pero tapan a quien se meta dentro.
+        const cell: Cell = block % 5 === 2 ? 3 : block % 3 === 0 ? 2 : 1;
         for (let dy = 0; dy < 2; dy++) {
           for (let dx = 0; dx < 2; dx++) {
-            walls[y + dy][x + dx] = steel ? 2 : 1;
+            walls[y + dy][x + dx] = cell;
           }
         }
       }

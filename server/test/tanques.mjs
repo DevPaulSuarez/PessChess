@@ -5,6 +5,22 @@
  */
 import { Arena, ARENA, CPU_COLOR } from '../dist/tanks/arena.js';
 
+/** Pulsa y suelta el gatillo: así sale un disparo normal. */
+function tapFire(arena, tankId) {
+  arena.setInput(tankId, { dir: null, firing: true });
+  arena.tick(ARENA.tickMs);
+  arena.setInput(tankId, { dir: null, firing: false });
+  arena.tick(ARENA.tickMs);
+}
+
+/** Mantiene el gatillo lo suficiente y lo suelta: disparo cargado. */
+function chargedFire(arena, tankId) {
+  arena.setInput(tankId, { dir: null, firing: true });
+  for (let t = 0; t <= ARENA.chargeMs; t += ARENA.tickMs) arena.tick(ARENA.tickMs);
+  arena.setInput(tankId, { dir: null, firing: false });
+  arena.tick(ARENA.tickMs);
+}
+
 let passed = 0;
 let failed = 0;
 
@@ -98,23 +114,36 @@ console.log('\nMoverse:');
 
 console.log('\nDisparar:');
 {
-  const { arena, a } = duel();
+  const { arena } = duel();
+  tapFire(arena, 't1');
+  check('al soltar el gatillo sale la bala', arena.bullets.length === 1, `${arena.bullets.length}`);
+  check('el disparo normal hace 1 de daño', arena.bullets[0]?.damage === 1, `${arena.bullets[0]?.damage}`);
+}
+
+{
+  const { arena } = duel();
   arena.setInput('t1', { dir: null, firing: true });
-  arena.tick(ARENA.tickMs);
-  check('dispara una bala', arena.bullets.length === 1, `${arena.bullets.length}`);
+  advance(arena, 2000);
+  check('mientras se mantiene pulsado no dispara', arena.bullets.length === 0, `${arena.bullets.length}`);
+}
 
-  arena.tick(ARENA.tickMs);
-  check('no dispara en ráfaga', arena.bullets.length <= 2, `${arena.bullets.length}`);
-
-  advance(arena, ARENA.bulletCooldown + 100);
-  check('la bala acaba desapareciendo', arena.bullets.length < 5, `${arena.bullets.length}`);
+{
+  const { arena } = duel();
+  chargedFire(arena, 't1');
+  check('el disparo cargado hace el doble', arena.bullets[0]?.damage === 2, `${arena.bullets[0]?.damage}`);
 }
 
 {
   const { arena, a } = duel();
-  // Un ladrillo justo delante, a la altura del cañón.
+  a.attack = 3;
+  chargedFire(arena, 't1');
+  check('cargar suma sobre el ataque que tengas', arena.bullets[0]?.damage === 4, `${arena.bullets[0]?.damage}`);
+}
+
+{
+  const { arena } = duel();
   arena.walls[13][8] = 1;
-  arena.setInput('t1', { dir: null, firing: true });
+  tapFire(arena, 't1');
   advance(arena, 500);
   check('la bala rompe el ladrillo', arena.walls[13][8] === 0, `${arena.walls[13][8]}`);
 }
@@ -122,45 +151,120 @@ console.log('\nDisparar:');
 {
   const { arena } = duel();
   arena.walls[13][8] = 2;
-  arena.setInput('t1', { dir: null, firing: true });
+  tapFire(arena, 't1');
   advance(arena, 500);
   check('el acero aguanta', arena.walls[13][8] === 2, `${arena.walls[13][8]}`);
 }
 
-console.log('\nDaño, defensa y ataque:');
+console.log('\nArbustos:');
 {
-  const { arena, a, b } = duel();
-  const vidaInicial = b.hp;
-  arena.setInput('t1', { dir: null, firing: true });
-  advance(arena, 800);
-  check('el impacto quita vida', b.hp < vidaInicial, `${vidaInicial} -> ${b.hp}`);
-  check('la bala se consume al impactar', arena.bullets.length < 3);
+  const { arena, a } = duel();
+  for (let x = 6; x <= 9; x++) arena.walls[13][x] = 3;
+  const x0 = a.x;
+  arena.setInput('t1', { dir: 'right', firing: false });
+  advance(arena, 700);
+  check('se puede entrar en el arbusto', a.x > x0 + 1, `${x0} -> ${a.x}`);
+  check('y el arbusto sigue ahí', arena.walls[13][8] === 3, `${arena.walls[13][8]}`);
 }
 
 {
   const { arena, b } = duel();
-  b.defense = 5; // más defensa que el ataque del rival
-  const vidaInicial = b.hp;
-  arena.setInput('t1', { dir: null, firing: true });
+  arena.walls[13][8] = 3;
+  const antes = b.hp + b.defense;
+  tapFire(arena, 't1');
   advance(arena, 800);
-  check('la defensa no hace invencible', b.hp < vidaInicial, `${vidaInicial} -> ${b.hp}`);
-  check('pero aguanta más', vidaInicial - b.hp === 1, `${vidaInicial - b.hp}`);
+  check('las balas atraviesan los arbustos', b.hp + b.defense < antes, `${antes} -> ${b.hp + b.defense}`);
+}
+
+console.log('\nVida y blindaje:');
+{
+  const { arena, b } = duel();
+  check('empieza con 5 de vida', b.hp === 5, `${b.hp}`);
+  check('y 2 de blindaje', b.defense === 2, `${b.defense}`);
+
+  tapFire(arena, 't1');
+  advance(arena, 800);
+  check('el blindaje encaja el primer impacto', b.defense === 1 && b.hp === 5,
+    `blindaje ${b.defense}, vida ${b.hp}`);
 }
 
 {
-  const { arena, a, b } = duel();
-  a.attack = 3;
-  b.hp = 10; b.maxHp = 10;
-  arena.setInput('t1', { dir: null, firing: true });
+  const { arena, b } = duel();
+  b.defense = 0;
+  tapFire(arena, 't1');
   advance(arena, 800);
-  check('más ataque hace más daño', b.hp === 7, `${b.hp}`);
+  check('sin blindaje el daño va a la vida', b.hp === 4, `${b.hp}`);
+}
+
+{
+  const { arena, b } = duel();
+  b.defense = 1;
+  chargedFire(arena, 't1');
+  advance(arena, 800);
+  check('un cargado atraviesa el blindaje que sobra',
+    b.defense === 0 && b.hp === 4, `blindaje ${b.defense}, vida ${b.hp}`);
+}
+
+console.log('\nEncajar en los pasillos:');
+{
+  const { arena, a } = duel();
+  for (let y = 0; y < ARENA.size; y++) arena.walls[y][10] = 2;
+  arena.walls[12][10] = 0;
+  arena.walls[13][10] = 0;
+  a.x = 8; a.y = 13.4; // desalineado a propósito
+
+  arena.setInput('t1', { dir: 'right', firing: false });
+  advance(arena, 1500);
+  check('se cuela por el hueco aunque no venga alineado', a.x > 11, `${a.x}`);
+}
+
+console.log('\nCofres:');
+{
+  const arena = new Arena([{ id: 't1', playerId: 'p1', color: '#f00' }], 5);
+  check('al principio no hay cofres', arena.pickups.length === 0);
+
+  advance(arena, ARENA.pickupEveryMs + 200);
+  check('aparecen solos con el tiempo', arena.pickups.length >= 1, `${arena.pickups.length}`);
+  check('y dan una de las tres cosas',
+    ['life', 'defense', 'attack'].includes(arena.pickups[0]?.kind), arena.pickups[0]?.kind);
+
+  advance(arena, ARENA.pickupEveryMs * 6);
+  check('no se llena el campo de cofres', arena.pickups.length <= ARENA.maxPickups, `${arena.pickups.length}`);
+}
+
+{
+  const arena = new Arena([{ id: 't1', playerId: 'p1', color: '#f00' }], 5);
+  const t = arena.tanks[0];
+  const ataque = t.attack;
+  arena.pickups.push({ id: 99, kind: 'attack', x: t.x, y: t.y });
+  arena.tick(ARENA.tickMs);
+  check('se recoge al pasarle por encima', arena.pickups.length === 0);
+  check('y sube el ataque', t.attack === ataque + 1, `${t.attack}`);
+}
+
+{
+  const arena = new Arena([{ id: 't1', playerId: 'p1', color: '#f00' }], 5);
+  const t = arena.tanks[0];
+  arena.pickups.push({ id: 98, kind: 'defense', x: t.x, y: t.y });
+  arena.tick(ARENA.tickMs);
+  check('el cofre de blindaje sube la defensa', t.defense === 3, `${t.defense}`);
+}
+
+{
+  const arena = new Arena([{ id: 't1', playerId: 'p1', color: '#f00' }], 5);
+  const t = arena.tanks[0];
+  t.hp = 2;
+  arena.pickups.push({ id: 97, kind: 'life', x: t.x, y: t.y });
+  arena.tick(ARENA.tickMs);
+  check('el cofre de vida cura y sube el máximo', t.hp === 4 && t.maxHp === 6,
+    `vida ${t.hp}/${t.maxHp}`);
 }
 
 console.log('\nDestruir y mejorar:');
 {
   const { arena, a, b } = duel();
-  b.hp = 1;
-  arena.setInput('t1', { dir: null, firing: true });
+  b.hp = 1; b.defense = 0;
+  tapFire(arena, 't1');
   advance(arena, 800);
 
   check('el tanque destruido queda fuera', b.alive === false);
@@ -174,26 +278,12 @@ console.log('\nDestruir y mejorar:');
   check('no puede mejorar sin haberla ganado', arena.applyUpgrade('t1', 'attack') === false);
 }
 
-{
-  const { arena, a, b } = duel();
-  b.hp = 1;
-  arena.setInput('t1', { dir: null, firing: true });
-  advance(arena, 800);
-  a.pendingUpgrades = 2;
-  const defensa = a.defense;
-  const ataque = a.attack;
-  arena.applyUpgrade('t1', 'defense');
-  arena.applyUpgrade('t1', 'attack');
-  check('puede subir defensa', a.defense === defensa + 1, `${a.defense}`);
-  check('puede subir ataque', a.attack === ataque + 1, `${a.attack}`);
-}
-
 console.log('\nGanar:');
 {
   const { arena, a, b } = duel();
   check('con dos en pie no hay ganador', arena.winner() === null);
-  b.hp = 1;
-  arena.setInput('t1', { dir: null, firing: true });
+  b.hp = 1; b.defense = 0;
+  tapFire(arena, 't1');
   advance(arena, 800);
   check('gana el último en pie', arena.winner()?.id === 't1', arena.winner()?.id);
 }
@@ -234,8 +324,8 @@ console.log('\nUna partida entera no se cuelga:');
     })),
     7,
   );
-  arena.setInput('t0', { dir: 'right', firing: true });
-  arena.setInput('t1', { dir: 'up', firing: true });
+  arena.setInput('t0', { dir: 'right', firing: false });
+  arena.setInput('t1', { dir: 'up', firing: false });
 
   const t0 = Date.now();
   advance(arena, 60000); // un minuto de juego

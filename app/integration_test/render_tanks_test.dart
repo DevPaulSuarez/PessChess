@@ -22,10 +22,11 @@ List<int> _walls(int size) {
   final walls = List<int>.filled(size * size, 0);
   for (var y = 3; y < size - 3; y += 4) {
     for (var x = 3; x < size - 3; x += 4) {
-      final steel = ((x - 3) ~/ 4 + (y - 3) ~/ 4) % 3 == 0;
+      final block = (x - 3) ~/ 4 + (y - 3) ~/ 4;
+      final cell = block % 5 == 2 ? 3 : (block % 3 == 0 ? 2 : 1);
       for (var dy = 0; dy < 2; dy++) {
         for (var dx = 0; dx < 2; dx++) {
-          walls[(y + dy) * size + (x + dx)] = steel ? 2 : 1;
+          walls[(y + dy) * size + (x + dx)] = cell;
         }
       }
     }
@@ -40,8 +41,8 @@ TankView _tank({
   required double x,
   required double y,
   required String dir,
-  int hp = 3,
-  int maxHp = 3,
+  int hp = 5,
+  int maxHp = 5,
 }) =>
     TankView(
       id: id,
@@ -52,8 +53,10 @@ TankView _tank({
       dir: dir,
       hp: hp,
       maxHp: maxHp,
+      charging: id == 't0' ? 380 : 0,
+      chargeMs: 550,
       attack: 1,
-      defense: 0,
+      defense: 2,
       alive: true,
       kills: 0,
       upgrades: 0,
@@ -68,15 +71,21 @@ void main() {
     final world = TankWorld(
       status: 'playing',
       size: size,
-      tankSize: 1.8,
+      tankSize: 1.5,
       yourTankId: 't0',
       tanks: [
         _tank(id: 't0', color: 0xFFE5383B, name: 'Ana', x: 2, y: 2, dir: 'down'),
         _tank(id: 't1', color: 0xFF3A86FF, name: 'Beto', x: 24, y: 24, dir: 'up', hp: 2),
-        _tank(id: 't2', color: 0xFF8E8E93, x: 13, y: 6, dir: 'right'),
-        _tank(id: 't3', color: 0xFF8E8E93, x: 8, y: 20, dir: 'left', hp: 1),
+        _tank(id: 't2', color: 0xFF8E8E93, x: 15, y: 6, dir: 'right'),
+        // Este está metido en un arbusto: debe quedar tapado.
+        _tank(id: 't3', color: 0xFF8E8E93, x: 11.5, y: 11.5, dir: 'left', hp: 1),
       ],
       bullets: const [BulletView(13, 9), BulletView(5, 15)],
+      pickups: const [
+        PickupView('life', 6, 13),
+        PickupView('defense', 18, 10),
+        PickupView('attack', 11, 22),
+      ],
       walls: _walls(size),
       winner: null,
     );

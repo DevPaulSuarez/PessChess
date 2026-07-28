@@ -14,6 +14,7 @@ class TankFieldPainter extends CustomPainter {
   static const _ground = Color(0xFF14110F);
   static const _brick = Color(0xFF9C5A3C);
   static const _steel = Color(0xFF9AA0A6);
+  static const _bush = Color(0xFF2E7D32);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -21,8 +22,12 @@ class TankFieldPainter extends CustomPainter {
     canvas.drawRect(Offset.zero & size, Paint()..color = _ground);
 
     _paintWalls(canvas, cell);
+    _paintPickups(canvas, cell);
     _paintTanks(canvas, cell);
     _paintBullets(canvas, cell);
+    // Los arbustos se pintan los últimos, encima de todo: de eso se trata,
+    // de que tapen a quien se meta debajo.
+    _paintBushes(canvas, cell);
   }
 
   void _paintWalls(Canvas canvas, double cell) {
@@ -38,7 +43,7 @@ class TankFieldPainter extends CustomPainter {
     for (var y = 0; y < world.size; y++) {
       for (var x = 0; x < world.size; x++) {
         final value = world.walls[y * world.size + x];
-        if (value == 0) continue;
+        if (value == 0 || value == 3) continue; // los arbustos van aparte
 
         final rect = Rect.fromLTWH(x * cell, y * cell, cell, cell);
         canvas.drawRect(rect, value == 1 ? brick : steel);
@@ -55,6 +60,65 @@ class TankFieldPainter extends CustomPainter {
           );
         }
       }
+    }
+  }
+
+  /// Arbustos: manchas de hojas por las que se puede pasar y esconderse.
+  void _paintBushes(Canvas canvas, double cell) {
+    if (world.walls.length < world.size * world.size) return;
+    final leaves = Paint()..color = _bush.withValues(alpha: 0.92);
+
+    for (var y = 0; y < world.size; y++) {
+      for (var x = 0; x < world.size; x++) {
+        if (world.walls[y * world.size + x] != 3) continue;
+        final rect = Rect.fromLTWH(x * cell, y * cell, cell, cell);
+        canvas.drawCircle(rect.center, cell * 0.55, leaves);
+        canvas.drawCircle(
+          rect.center.translate(-cell * 0.22, -cell * 0.18),
+          cell * 0.34,
+          Paint()..color = const Color(0xFF43A047).withValues(alpha: 0.9),
+        );
+      }
+    }
+  }
+
+  /// Cofres: lo que sueltan se distingue por color e icono.
+  void _paintPickups(Canvas canvas, double cell) {
+    for (final pickup in world.pickups) {
+      final centre = Offset(pickup.x * cell, pickup.y * cell);
+      final (color, symbol) = switch (pickup.kind) {
+        'life' => (const Color(0xFF2FBF71), '+'),
+        'defense' => (const Color(0xFF3A86FF), '◇'),
+        _ => (const Color(0xFFFFBE0B), '★'),
+      };
+
+      final box = Rect.fromCenter(
+          center: centre, width: cell * 1.5, height: cell * 1.5);
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(box, Radius.circular(cell * 0.25)),
+        Paint()..color = color,
+      );
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(box, Radius.circular(cell * 0.25)),
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = cell * 0.12
+          ..color = Colors.white,
+      );
+
+      final label = TextPainter(
+        text: TextSpan(
+          text: symbol,
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: cell * 0.95,
+            fontWeight: FontWeight.bold,
+            height: 1,
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      label.paint(canvas, centre - Offset(label.width / 2, label.height / 2));
     }
   }
 
@@ -147,6 +211,18 @@ class TankFieldPainter extends CustomPainter {
       }
 
       _paintHealthBar(canvas, tank, centre, half, cell);
+
+      // La barra de carga solo en el tanque propio: en los demás sería ruido.
+      if (tank.id == world.yourTankId && tank.charging > 0) {
+        final bar = Rect.fromLTWH(centre.dx - half,
+            centre.dy + half + cell * 0.2, half * 2, cell * 0.24);
+        canvas.drawRect(bar, Paint()..color = Colors.black54);
+        canvas.drawRect(
+          Rect.fromLTWH(bar.left, bar.top, bar.width * tank.chargeRatio, bar.height),
+          Paint()
+            ..color = tank.isCharged ? Colors.amberAccent : Colors.white70,
+        );
+      }
     }
   }
 
