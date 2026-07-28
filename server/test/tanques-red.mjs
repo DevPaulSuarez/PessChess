@@ -27,7 +27,12 @@ function connect() {
   socket.lastLobby = null;
   socket.lastState = null;
   socket.on('tank_lobby', (l) => (socket.lastLobby = l));
-  socket.on('tank_state', (s) => (socket.lastState = s));
+  socket.on('tank_state', (s) => {
+    // Los muros solo viajan cuando cambian, así que hay que guardarlos igual
+    // que hace la app: quedándose con el último estado a secas se perderían.
+    if (s.walls !== undefined) socket.walls = s.walls;
+    socket.lastState = s;
+  });
   return new Promise((resolve, reject) => {
     socket.once('connect', () => resolve(socket));
     socket.once('connect_error', reject);
@@ -131,8 +136,9 @@ async function testMatch() {
   check('los otros dos son de la máquina, en plomo',
     estado.tanks.filter((t) => !t.name).every((t) => t.color === '#8E8E93'));
   check('cada uno sabe cuál es su tanque', typeof estado.yourTankId === 'string', `${estado.yourTankId}`);
-  check('llega el campo de muros', typeof estado.walls === 'string' && estado.walls.length === 26 * 26,
-    `${estado.walls?.length}`);
+  check('llega el campo de muros',
+    typeof ana.walls === 'string' && ana.walls.length === 26 * 26,
+    `${ana.walls?.length}`);
   check('los colores elegidos se respetan',
     estado.tanks.some((t) => t.color === '#2FBF71') && estado.tanks.some((t) => t.color === '#9B5DE5'));
 
