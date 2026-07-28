@@ -37,6 +37,10 @@ PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
 
+# El editor guarda aquí los mapas dibujados. Es lo único que el servicio
+# necesita poder escribir; el resto del disco lo tiene en solo lectura.
+ReadWritePaths=/opt/pesschess/server/data
+
 # Techo de memoria del servicio. Si lo supera, systemd lo reinicia solo en
 # lugar de dejar que el núcleo mate cualquier otra cosa del servidor.
 MemoryMax=256M
