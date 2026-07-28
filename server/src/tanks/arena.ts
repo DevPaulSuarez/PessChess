@@ -29,6 +29,8 @@ export interface Pickup {
   kind: PickupKind;
   x: number;
   y: number;
+  /** Hay que reventarlo a tiros: el premio es de quien da el último. */
+  hp: number;
 }
 
 export interface Tank {
@@ -79,9 +81,11 @@ export const ARENA = {
   bulletCooldown: 400, // ms
   /** Cuánto hay que mantener pulsado para que el disparo salga cargado. */
   chargeMs: 550,
-  /** Cada cuánto aparece un cofre, y cuántos puede haber a la vez. */
+  /** Cada cuánto sale un cofre y cuánto aguanta antes de reventar. */
   pickupEveryMs: 9000,
-  maxPickups: 3,
+  pickupHp: 3,
+  /** Cuántos cofres salen si quien crea la sala no dice otra cosa. */
+  defaultChests: 3,
   /** Vida y blindaje con los que empieza cada tanque. */
   startingHp: 5,
   startingDefense: 2,
@@ -109,11 +113,21 @@ export class Arena {
   private nextBulletId = 1;
   private nextPickupId = 1;
   private sincePickup = 0;
+  /** Cofres que quedan por salir. Los fija quien crea la sala. */
+  private chestsLeft: number;
+  /**
+   * Reloj propio, en milisegundos de mundo. No se usa `Date.now()` porque el
+   * mundo avanza a saltos que no tienen por qué coincidir con el tiempo real:
+   * en las pruebas se simula un minuto en milésimas, y con el reloj del sistema
+   * la máquina se quedaba con el gatillo apretado sin llegar a soltarlo nunca.
+   */
+  private clock = 0;
   /** Semilla propia para que una partida se pueda repetir igual en pruebas. */
   private seed: number;
 
-  constructor(specs: TankSpec[], seed = Date.now()) {
+  constructor(specs: TankSpec[], seed = Date.now(), chests: number = ARENA.defaultChests) {
     this.seed = seed >>> 0;
+    this.chestsLeft = Math.max(0, Math.round(chests));
     this.walls = this.buildWalls();
 
     const spots = this.startingSpots(specs.length);
@@ -179,14 +193,11 @@ export class Arena {
   /** Adelanta el mundo los milisegundos indicados. */
   tick(deltaMs: number): void {
     const dt = deltaMs / 1000;
+    this.clock += deltaMs;
 
     for (const tank of this.tanks) {
       if (!tank.alive) continue;
       tank.cooldown = Math.max(0, tank.cooldown - deltaMs);
-
-      // Los cofres se recogen estés haciendo algo o no: quedarse quieto encima
-      // de uno y que no pasara nada sería desconcertante.
-      this.collectPickups(tank);
 
       const input = tank.playerId
         ? this.inputs.get(tank.id)
@@ -307,6 +318,20 @@ export class Arena {
     if (cell === 2) return false; // el acero aguanta
     // Por los arbustos (3) la bala pasa de largo: solo sirven para esconderse.
 
+    // Los cofres se abren a tiros: el premio es para quien dé el último.
+    for (const pickup of this.pickups) {
+      if (Math.abs(bullet.x - pickup.x) > 0.75 || Math.abs(bullet.y - pickup.y) > 0.75) {
+        continue;
+      }
+      pickup.hp -= bullet.damage;
+      if (pickup.hp <= 0) {
+        this.pickups = this.pickups.filter((p) => p.id !== pickup.id);
+        const shooter = this.tanks.find((t) => t.id === bullet.tankId);
+        if (shooter) this.grant(shooter, pickup.kind);
+      }
+      return false;
+    }
+
     for (const tank of this.tanks) {
       if (!tank.alive || tank.id === bullet.tankId) continue;
       const half = ARENA.tankSize / 2;
@@ -338,6 +363,13 @@ export class Arena {
       shooter.kills++;
       shooter.pendingUpgrades++;
     }
+
+    // Un tanque de la máquina derribado por un jugador suelta un cofre donde
+    // cayó. Los cofres sueltos no cuentan contra los que fijó la sala: son
+    // premio por el derribo.
+    if (target.playerId === null && shooter?.playerId) {
+      this.dropChest(target.x, target.y);
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -349,10 +381,10 @@ export class Arena {
    * azar: más pegada, más vida o más blindaje.
    */
   private spawnPickups(deltaMs: number): void {
+    if (this.chestsLeft <= 0) return;
     this.sincePickup += deltaMs;
     if (this.sincePickup < ARENA.pickupEveryMs) return;
     this.sincePickup = 0;
-    if (this.pickups.length >= ARENA.maxPickups) return;
 
     // Se buscan unos cuantos sitios y se usa el primero que valga; si el campo
     // está muy lleno, sencillamente no sale cofre esta vez.
@@ -365,26 +397,21 @@ export class Arena {
         continue;
       }
 
-      const kinds: PickupKind[] = ['life', 'defense', 'attack'];
-      this.pickups.push({
-        id: this.nextPickupId++,
-        kind: kinds[this.random(kinds.length)],
-        x,
-        y,
-      });
+      this.dropChest(x, y);
+      this.chestsLeft--;
       return;
     }
   }
 
-  /** Recoge los cofres que pisa un tanque. */
-  private collectPickups(tank: Tank): void {
-    const reach = ARENA.tankSize / 2 + 0.4;
-    this.pickups = this.pickups.filter((pickup) => {
-      if (Math.abs(pickup.x - tank.x) > reach || Math.abs(pickup.y - tank.y) > reach) {
-        return true;
-      }
-      this.grant(tank, pickup.kind);
-      return false;
+  /** Deja un cofre en un sitio concreto, con lo que dará al azar. */
+  private dropChest(x: number, y: number): void {
+    const kinds: PickupKind[] = ['life', 'defense', 'attack'];
+    this.pickups.push({
+      id: this.nextPickupId++,
+      kind: kinds[this.random(kinds.length)],
+      x,
+      y,
+      hp: ARENA.pickupHp,
     });
   }
 
@@ -407,31 +434,114 @@ export class Arena {
   // Los tanques de la máquina
   // -------------------------------------------------------------------------
 
-  private cpuMemory = new Map<string, { dir: Direction; until: number }>();
+  private cpuMemory = new Map<
+    string,
+    { dir: Direction; until: number; fireUntil: number; nextShotAt: number }
+  >();
 
   /**
-   * La máquina juega sencillo: se mueve en una dirección un rato, y dispara
-   * cuando tiene a alguien enfrente. Suficiente para dar guerra sin volverse
-   * imposible.
+   * La máquina persigue al jugador vivo más cercano y le dispara cuando lo tiene
+   * enfilado. Antes elegía direcciones al azar y se pasaba la partida dando
+   * vueltas contra los muros.
    */
   private cpuInput(tank: Tank): TankInput {
-    const now = Date.now();
+    const now = this.clock;
     let plan = this.cpuMemory.get(tank.id);
-    if (!plan || plan.until < now) {
-      plan = {
-        dir: (['up', 'down', 'left', 'right'] as const)[this.random(4)],
-        until: now + 600 + this.random(1200),
-      };
+    if (!plan) {
+      plan = { dir: tank.dir, until: 0, fireUntil: 0, nextShotAt: 0 };
       this.cpuMemory.set(tank.id, plan);
     }
 
-    // Si está pegado a un muro, cambiar de idea antes de tiempo.
-    const [dx, dy] = VECTORS[plan.dir];
-    if (!this.tankFits(tank, tank.x + dx * 0.3, tank.y + dy * 0.3)) {
-      plan.until = 0;
+    const target = this.nearestPlayer(tank);
+
+    // Se replantea el rumbo cada poco, y de inmediato si se ha quedado trabado.
+    if (plan.until < now || this.blocked(tank, plan.dir)) {
+      plan.dir = target ? this.chase(tank, target) : this.anyFreeDirection(tank);
+      plan.until = now + 250 + this.random(350);
     }
 
-    return { dir: plan.dir, firing: this.hasTargetAhead(tank) };
+    // Si ya tiene al rival enfilado se planta y dispara, en vez de seguir
+    // moviéndose y perder la puntería bailando a su alrededor.
+    const aiming = this.hasTargetAhead(tank);
+    return {
+      dir: aiming ? null : plan.dir,
+      firing: this.cpuTrigger(tank, plan, now),
+    };
+  }
+
+  /** Hacia dónde ir para acercarse al objetivo, esquivando lo que estorbe. */
+  private chase(tank: Tank, target: Tank): Direction {
+    const dx = target.x - tank.x;
+    const dy = target.y - tank.y;
+
+    // Primero el eje en el que está más lejos: así se acerca en diagonal a base
+    // de alternar, en vez de recorrer un lado entero y luego el otro.
+    const preferred: Direction[] =
+      Math.abs(dx) > Math.abs(dy)
+        ? [dx > 0 ? 'right' : 'left', dy > 0 ? 'down' : 'up']
+        : [dy > 0 ? 'down' : 'up', dx > 0 ? 'right' : 'left'];
+
+    for (const dir of preferred) {
+      if (!this.blocked(tank, dir)) return dir;
+    }
+    return this.anyFreeDirection(tank);
+  }
+
+  private anyFreeDirection(tank: Tank): Direction {
+    const all: Direction[] = ['up', 'down', 'left', 'right'];
+    const start = this.random(4);
+    for (let i = 0; i < 4; i++) {
+      const dir = all[(start + i) % 4];
+      if (!this.blocked(tank, dir)) return dir;
+    }
+    return tank.dir;
+  }
+
+  private blocked(tank: Tank, dir: Direction): boolean {
+    const [dx, dy] = VECTORS[dir];
+    return !this.tankFits(tank, tank.x + dx * 0.4, tank.y + dy * 0.4);
+  }
+
+  private nearestPlayer(tank: Tank): Tank | null {
+    let best: Tank | null = null;
+    let bestDistance = Infinity;
+    for (const other of this.tanks) {
+      if (!other.alive || other.playerId === null || other.id === tank.id) continue;
+      const distance = Math.abs(other.x - tank.x) + Math.abs(other.y - tank.y);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        best = other;
+      }
+    }
+    return best;
+  }
+
+  /**
+   * El gatillo de la máquina.
+   *
+   * Como ahora el disparo sale al soltar, no vale con tener `firing` siempre a
+   * true: se quedaría cargando eternamente sin llegar a disparar. Aquí mantiene
+   * el gatillo un rato y lo suelta, y de vez en cuando aguanta lo suficiente
+   * para soltar un cargado.
+   */
+  private cpuTrigger(
+    tank: Tank,
+    plan: { fireUntil: number; nextShotAt: number },
+    now: number,
+  ): boolean {
+    if (plan.fireUntil > now) return true; // sigue apretando
+
+    // Hay que soltar de verdad antes de volver a apretar. Sin esta pausa, en el
+    // mismo instante en que tocaba soltar empezaba otro disparo, y el tanque se
+    // pasaba la partida cargando sin llegar a disparar nunca.
+    if (now < plan.nextShotAt) return false;
+    if (tank.cooldown > 0 || !this.hasTargetAhead(tank)) return false;
+
+    // La máquina no carga el arma: solo disparos normales, para que cargar sea
+    // una ventaja de los jugadores.
+    plan.fireUntil = now + 150;
+    plan.nextShotAt = plan.fireUntil + 250;
+    return true;
   }
 
   /** ¿Hay algún tanque enemigo en la línea de tiro? */
@@ -525,11 +635,32 @@ export class Arena {
     return walls;
   }
 
-  /** Deja despejado el sitio donde aparece un tanque. */
+  /**
+   * Deja despejado el sitio donde aparece un tanque.
+   *
+   * Se quitan bloques enteros, no celdas sueltas: los bloques son de dos por
+   * dos y borrar solo la esquina que estorbaba dejaba muros a medias, con una
+   * pinta rarísima.
+   */
   private clearAround(x: number, y: number): void {
     for (let cy = Math.floor(y) - 1; cy <= Math.floor(y) + 1; cy++) {
       for (let cx = Math.floor(x) - 1; cx <= Math.floor(x) + 1; cx++) {
-        if (this.walls[cy]?.[cx] !== undefined) this.walls[cy][cx] = 0;
+        if (this.walls[cy]?.[cx] === undefined) continue;
+        if (this.walls[cy][cx] === 0) continue;
+        this.clearBlockAt(cx, cy);
+      }
+    }
+  }
+
+  /** Borra el bloque de dos por dos al que pertenece una celda. */
+  private clearBlockAt(cx: number, cy: number): void {
+    const originX = 3 + Math.floor((cx - 3) / 4) * 4;
+    const originY = 3 + Math.floor((cy - 3) / 4) * 4;
+    for (let dy = 0; dy < 2; dy++) {
+      for (let dx = 0; dx < 2; dx++) {
+        if (this.walls[originY + dy]?.[originX + dx] !== undefined) {
+          this.walls[originY + dy][originX + dx] = 0;
+        }
       }
     }
   }

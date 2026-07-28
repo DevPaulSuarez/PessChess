@@ -28,6 +28,27 @@ class TankFieldPainter extends CustomPainter {
     // Los arbustos se pintan los últimos, encima de todo: de eso se trata,
     // de que tapen a quien se meta debajo.
     _paintBushes(canvas, cell);
+    _paintBorder(canvas, cell);
+  }
+
+  /// Marco del campo. Sin él no se ve dónde acaba el terreno y parece que se
+  /// pudiera seguir avanzando.
+  void _paintBorder(Canvas canvas, double cell) {
+    final side = cell * world.size;
+    final thickness = cell * 0.5;
+    final frame = Rect.fromLTWH(
+      thickness / 2,
+      thickness / 2,
+      side - thickness,
+      side - thickness,
+    );
+    canvas.drawRect(
+      frame,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = thickness
+        ..color = Colors.white.withValues(alpha: 0.85),
+    );
   }
 
   void _paintWalls(Canvas canvas, double cell) {
@@ -105,6 +126,20 @@ class TankFieldPainter extends CustomPainter {
           ..strokeWidth = cell * 0.12
           ..color = Colors.white,
       );
+
+      // Marcas de lo que le queda: hay que romperlo a tiros.
+      for (var i = 0; i < 3; i++) {
+        final pip = Rect.fromLTWH(
+          box.left + cell * 0.15 + i * cell * 0.45,
+          box.bottom + cell * 0.12,
+          cell * 0.3,
+          cell * 0.16,
+        );
+        canvas.drawRect(
+          pip,
+          Paint()..color = i < pickup.hp ? color : Colors.white24,
+        );
+      }
 
       final label = TextPainter(
         text: TextSpan(

@@ -1,7 +1,7 @@
 import type { Server, Socket } from 'socket.io';
 
 import { ARENA, type Direction, type Upgrade } from './arena.js';
-import { MAX_TANKS, MIN_TANKS, TANK_COLORS, TankMatch } from './match.js';
+import { MAX_CHESTS, MAX_TANKS, MIN_TANKS, TANK_COLORS, TankMatch } from './match.js';
 
 /**
  * Todo lo que tiene que ver con la red en las partidas de tanques.
@@ -35,7 +35,11 @@ export class TankServer {
 
   register(socket: Socket): void {
     socket.on('tank_create', (payload) => {
-      const match = new TankMatch(this.freshCode(), Number(payload?.tankCount ?? 4));
+      const match = new TankMatch(
+        this.freshCode(),
+        Number(payload?.tankCount ?? 4),
+        Number(payload?.chestCount ?? ARENA.defaultChests),
+      );
       this.matches.set(match.id, match);
 
       const player = match.addPlayer(cleanName(payload?.name), socket.id);
@@ -74,6 +78,13 @@ export class TankServer {
       if (!match.pickColor(player.token, String(payload?.color ?? ''))) {
         this.fail(socket, 'Ese color ya lo ha cogido otro.');
       }
+      this.sendLobby(match);
+    });
+
+    socket.on('tank_set_chests', (payload) => {
+      const { match, player } = this.find(socket);
+      if (!match || !player) return;
+      match.setChestCount(player.token, Number(payload?.chestCount));
       this.sendLobby(match);
     });
 
@@ -179,6 +190,7 @@ export class TankServer {
       kind: p.kind,
       x: round(p.x),
       y: round(p.y),
+      hp: p.hp,
     }));
 
     for (const player of match.players) {
@@ -202,8 +214,10 @@ export class TankServer {
       code: match.id,
       status: match.status,
       tankCount: match.tankCount,
+      chestCount: match.chestCount,
       minTanks: MIN_TANKS,
       maxTanks: MAX_TANKS,
+      maxChests: MAX_CHESTS,
       colors: TANK_COLORS,
       taken: match.takenColors(),
       canStart: match.canStart,

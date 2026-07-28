@@ -83,8 +83,8 @@ void main() {
       bullets: const [BulletView(13, 9), BulletView(5, 15)],
       pickups: const [
         PickupView('life', 6, 13),
-        PickupView('defense', 18, 10),
-        PickupView('attack', 11, 22),
+        PickupView('defense', 18, 10, hp: 2),
+        PickupView('attack', 11, 22, hp: 1),
       ],
       walls: _walls(size),
       winner: null,

@@ -24,6 +24,7 @@ class _TankScreenState extends State<TankScreen> {
   final _nameController = TextEditingController();
   final _codeController = TextEditingController();
   int _tankCount = 4;
+  int _chestCount = 3;
 
   /// Lo que el jugador tiene pulsado ahora mismo.
   String? _direction;
@@ -152,12 +153,46 @@ class _TankScreenState extends State<TankScreen> {
                       ),
                     ],
                   ),
+                  const SizedBox(height: 20),
+
+                  Text('Cofres en la partida', style: theme.textTheme.labelLarge),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Salen poco a poco. Hay que reventarlos a tiros: aguantan '
+                    'tres impactos y el premio es de quien dé el último.',
+                    style: theme.textTheme.bodySmall
+                        ?.copyWith(color: Colors.white60),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      IconButton.filledTonal(
+                        onPressed: _chestCount > 0
+                            ? () => setState(() => _chestCount--)
+                            : null,
+                        icon: const Icon(Icons.remove),
+                      ),
+                      Expanded(
+                        child: Text(
+                          '$_chestCount',
+                          textAlign: TextAlign.center,
+                          style: theme.textTheme.headlineMedium,
+                        ),
+                      ),
+                      IconButton.filledTonal(
+                        onPressed: _chestCount < 10
+                            ? () => setState(() => _chestCount++)
+                            : null,
+                        icon: const Icon(Icons.add),
+                      ),
+                    ],
+                  ),
                   const SizedBox(height: 24),
 
                   FilledButton.icon(
                     onPressed: () {
                       widget.client.setPlayerName(_nameController.text);
-                      _tanks.create(_nameController.text, _tankCount);
+                      _tanks.create(_nameController.text, _tankCount, _chestCount);
                     },
                     icon: const Icon(Icons.add),
                     label: const Text('Crear batalla'),
@@ -324,6 +359,13 @@ class _TankScreenState extends State<TankScreen> {
                           ? const Icon(Icons.star, size: 18)
                           : null,
                     ),
+
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Text('${lobby.chestCount} cofres durante la partida',
+                        style: theme.textTheme.bodySmall
+                            ?.copyWith(color: Colors.white60)),
+                  ),
 
                   if (lobby.cpuTanks > 0)
                     Padding(

@@ -220,44 +220,84 @@ console.log('\nEncajar en los pasillos:');
 
 console.log('\nCofres:');
 {
-  const arena = new Arena([{ id: 't1', playerId: 'p1', color: '#f00' }], 5);
+  const arena = new Arena([{ id: 't1', playerId: 'p1', color: '#f00' }], 5, 2);
   check('al principio no hay cofres', arena.pickups.length === 0);
 
   advance(arena, ARENA.pickupEveryMs + 200);
-  check('aparecen solos con el tiempo', arena.pickups.length >= 1, `${arena.pickups.length}`);
+  check('aparecen solos con el tiempo', arena.pickups.length === 1, `${arena.pickups.length}`);
+  check('con tres de vida', arena.pickups[0]?.hp === 3, `${arena.pickups[0]?.hp}`);
   check('y dan una de las tres cosas',
     ['life', 'defense', 'attack'].includes(arena.pickups[0]?.kind), arena.pickups[0]?.kind);
 
-  advance(arena, ARENA.pickupEveryMs * 6);
-  check('no se llena el campo de cofres', arena.pickups.length <= ARENA.maxPickups, `${arena.pickups.length}`);
+  advance(arena, ARENA.pickupEveryMs * 8);
+  check('solo salen los que fijó la sala', arena.pickups.length === 2, `${arena.pickups.length}`);
 }
 
 {
-  const arena = new Arena([{ id: 't1', playerId: 'p1', color: '#f00' }], 5);
-  const t = arena.tanks[0];
-  const ataque = t.attack;
-  arena.pickups.push({ id: 99, kind: 'attack', x: t.x, y: t.y });
-  arena.tick(ARENA.tickMs);
-  check('se recoge al pasarle por encima', arena.pickups.length === 0);
-  check('y sube el ataque', t.attack === ataque + 1, `${t.attack}`);
+  const { arena, a } = duel();
+  const ataque = a.attack;
+  // Un cofre justo delante, en la línea de tiro.
+  arena.pickups.push({ id: 90, kind: 'attack', x: 9, y: 13, hp: 3 });
+
+  tapFire(arena, 't1');
+  advance(arena, 500);
+  check('no se abre de un solo disparo', arena.pickups.length === 1, `${arena.pickups.length}`);
+  check('pero va perdiendo vida', arena.pickups[0]?.hp === 2, `${arena.pickups[0]?.hp}`);
+  check('y todavía no da nada', a.attack === ataque, `${a.attack}`);
+
+  tapFire(arena, 't1'); advance(arena, 500);
+  tapFire(arena, 't1'); advance(arena, 500);
+  check('al tercer disparo revienta', arena.pickups.length === 0, `${arena.pickups.length}`);
+  check('y el premio es de quien lo rompió', a.attack === ataque + 1, `${a.attack}`);
 }
 
 {
-  const arena = new Arena([{ id: 't1', playerId: 'p1', color: '#f00' }], 5);
-  const t = arena.tanks[0];
-  arena.pickups.push({ id: 98, kind: 'defense', x: t.x, y: t.y });
-  arena.tick(ARENA.tickMs);
-  check('el cofre de blindaje sube la defensa', t.defense === 3, `${t.defense}`);
+  const { arena, a } = duel();
+  arena.pickups.push({ id: 91, kind: 'attack', x: 8, y: 13, hp: 3 });
+  const ataque = a.attack;
+  advance(arena, 1500);
+  check('pisarlo ya no basta', a.attack === ataque && arena.pickups.length === 1,
+    `ataque ${a.attack}, cofres ${arena.pickups.length}`);
 }
 
 {
-  const arena = new Arena([{ id: 't1', playerId: 'p1', color: '#f00' }], 5);
-  const t = arena.tanks[0];
-  t.hp = 2;
-  arena.pickups.push({ id: 97, kind: 'life', x: t.x, y: t.y });
-  arena.tick(ARENA.tickMs);
-  check('el cofre de vida cura y sube el máximo', t.hp === 4 && t.maxHp === 6,
-    `vida ${t.hp}/${t.maxHp}`);
+  const { arena, a } = duel();
+  const blindaje = a.defense;
+  arena.pickups.push({ id: 92, kind: 'defense', x: 9, y: 13, hp: 1 });
+  tapFire(arena, 't1');
+  advance(arena, 500);
+  check('el cofre de blindaje sube la defensa', a.defense === blindaje + 1, `${a.defense}`);
+}
+
+{
+  const { arena, a } = duel();
+  a.hp = 2;
+  arena.pickups.push({ id: 93, kind: 'life', x: 9, y: 13, hp: 1 });
+  tapFire(arena, 't1');
+  advance(arena, 500);
+  check('el cofre de vida cura y sube el máximo', a.hp === 4 && a.maxHp === 6,
+    `vida ${a.hp}/${a.maxHp}`);
+}
+
+console.log('\nDerribar un plomo da premio:');
+{
+  const arena = new Arena(
+    [
+      { id: 't1', playerId: 'p1', color: '#f00' },
+      { id: 'cpu1', playerId: null, color: CPU_COLOR },
+    ],
+    77,
+    0, // sin cofres de los que salen solos, para no confundir
+  );
+  const [jugador, maquina] = arena.tanks;
+  for (let x = 3; x <= 20; x++) { arena.walls[13][x] = 0; arena.walls[12][x] = 0; }
+  jugador.x = 5; jugador.y = 13; jugador.dir = 'right';
+  maquina.x = 9; maquina.y = 13; maquina.hp = 1; maquina.defense = 0;
+
+  tapFire(arena, 't1');
+  advance(arena, 600);
+  check('el plomo cae', maquina.alive === false);
+  check('y suelta un cofre donde cayó', arena.pickups.length === 1, `${arena.pickups.length}`);
 }
 
 console.log('\nDestruir y mejorar:');
@@ -312,6 +352,91 @@ console.log('\nTanques de la máquina:');
   // Con el jugador muerto, no queda nadie en pie.
   arena.tanks[0].alive = false;
   check('sin jugadores vivos se acaba', arena.everyoneIsDown === true);
+}
+
+console.log('\nLa máquina se comporta como un jugador:');
+{
+  const arena = new Arena(
+    [
+      { id: 't1', playerId: 'p1', color: '#f00' },
+      { id: 'cpu1', playerId: null, color: CPU_COLOR },
+    ],
+    3,
+  );
+  const [jugador, maquina] = arena.tanks;
+
+  // El jugador se queda quieto en el centro y la máquina debe ir a por él.
+  jugador.x = 13; jugador.y = 13;
+  const distancia = () =>
+    Math.abs(maquina.x - jugador.x) + Math.abs(maquina.y - jugador.y);
+  const inicial = distancia();
+
+  advance(arena, 6000);
+  check('se acerca al jugador en vez de dar vueltas',
+    distancia() < inicial - 3, `${inicial.toFixed(1)} -> ${distancia().toFixed(1)}`);
+}
+
+{
+  const arena = new Arena(
+    [
+      { id: 't1', playerId: 'p1', color: '#f00' },
+      { id: 'cpu1', playerId: null, color: CPU_COLOR },
+    ],
+    11,
+    0,
+  );
+  const [jugador, maquina] = arena.tanks;
+  // Cara a cara en un pasillo despejado.
+  for (let x = 3; x <= 20; x++) { arena.walls[13][x] = 0; arena.walls[12][x] = 0; }
+  jugador.x = 16; jugador.y = 13;
+  maquina.x = 8; maquina.y = 13; maquina.dir = 'right';
+
+  const vidaInicial = jugador.hp + jugador.defense;
+  advance(arena, 4000);
+  check('dispara de verdad, no se queda cargando',
+    jugador.hp + jugador.defense < vidaInicial,
+    `${vidaInicial} -> ${jugador.hp + jugador.defense}`);
+}
+
+{
+  const arena = new Arena(
+    Array.from({ length: 4 }, (_, i) => ({
+      id: `t${i}`,
+      playerId: i === 0 ? 'p0' : null,
+      color: i === 0 ? '#f00' : CPU_COLOR,
+    })),
+    21,
+  );
+  const maquinas = arena.tanks.filter((t) => t.playerId === null);
+  const antes = maquinas.map((t) => ({ x: t.x, y: t.y }));
+  advance(arena, 4000);
+  const movidas = maquinas.filter(
+    (t, i) => Math.abs(t.x - antes[i].x) + Math.abs(t.y - antes[i].y) > 2,
+  );
+  check('ninguna se queda trabada contra un muro',
+    movidas.length === maquinas.length, `${movidas.length} de ${maquinas.length}`);
+}
+
+console.log('\nEl campo está bien formado:');
+{
+  const arena = new Arena(
+    Array.from({ length: 8 }, (_, i) => ({ id: `t${i}`, playerId: `p${i}`, color: '#f00' })),
+    4,
+  );
+  // Cada bloque de dos por dos debe estar entero o no estar: las salidas de los
+  // tanques despejan bloques completos, nunca media esquina.
+  let incompletos = 0;
+  for (let y = 3; y < ARENA.size - 3; y += 4) {
+    for (let x = 3; x < ARENA.size - 3; x += 4) {
+      const celdas = [
+        arena.walls[y][x], arena.walls[y][x + 1],
+        arena.walls[y + 1][x], arena.walls[y + 1][x + 1],
+      ];
+      const distintas = new Set(celdas);
+      if (distintas.size > 1) incompletos++;
+    }
+  }
+  check('no quedan bloques a medias', incompletos === 0, `${incompletos} bloques`);
 }
 
 console.log('\nUna partida entera no se cuelga:');

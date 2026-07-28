@@ -80,12 +80,15 @@ class BulletView {
 
 /// Un cofre esperando a que alguien lo pise.
 class PickupView {
-  const PickupView(this.kind, this.x, this.y);
+  const PickupView(this.kind, this.x, this.y, {this.hp = 3});
 
   /// 'life', 'defense' o 'attack'.
   final String kind;
   final double x;
   final double y;
+
+  /// Hay que reventarlo a tiros; el premio es de quien dé el último.
+  final int hp;
 }
 
 /// Un jugador sentado en la sala, antes de empezar.
@@ -121,8 +124,10 @@ class TankLobby {
   const TankLobby({
     required this.code,
     required this.tankCount,
+    required this.chestCount,
     required this.minTanks,
     required this.maxTanks,
+    required this.maxChests,
     required this.colors,
     required this.taken,
     required this.canStart,
@@ -133,8 +138,10 @@ class TankLobby {
 
   final String code;
   final int tankCount;
+  final int chestCount;
   final int minTanks;
   final int maxTanks;
+  final int maxChests;
   final List<TankColorOption> colors;
 
   /// Colores que ya ha cogido alguien: no se pueden volver a elegir.
@@ -151,8 +158,10 @@ class TankLobby {
   factory TankLobby.fromJson(Map<String, dynamic> json) => TankLobby(
         code: json['code'] as String,
         tankCount: json['tankCount'] as int,
+        chestCount: json['chestCount'] as int? ?? 3,
         minTanks: json['minTanks'] as int,
         maxTanks: json['maxTanks'] as int,
+        maxChests: json['maxChests'] as int? ?? 10,
         colors: (json['colors'] as List)
             .map((c) => TankColorOption(
                   (c as Map)['id'] as String,
@@ -272,6 +281,7 @@ class TankClient extends ChangeNotifier {
                   (p as Map)['kind'] as String,
                   (p['x'] as num).toDouble(),
                   (p['y'] as num).toDouble(),
+                  hp: (p['hp'] as num?)?.toInt() ?? 3,
                 ))
             .toList(),
         walls: _walls,
@@ -290,9 +300,13 @@ class TankClient extends ChangeNotifier {
 
   // -------------------------------------------------------------------------
 
-  void create(String name, int tankCount) {
+  void create(String name, int tankCount, int chestCount) {
     _reset();
-    _socket?.emit('tank_create', {'name': name, 'tankCount': tankCount});
+    _socket?.emit('tank_create', {
+      'name': name,
+      'tankCount': tankCount,
+      'chestCount': chestCount,
+    });
   }
 
   void join(String code, String name) {

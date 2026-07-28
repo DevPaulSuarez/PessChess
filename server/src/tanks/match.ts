@@ -30,6 +30,7 @@ export const TANK_COLORS = [
 export const MAX_PLAYERS = TANK_COLORS.length;
 export const MIN_TANKS = 2;
 export const MAX_TANKS = 12;
+export const MAX_CHESTS = 10;
 
 export type MatchStatus = 'lobby' | 'playing' | 'finished';
 
@@ -56,6 +57,9 @@ export class TankMatch {
   /** Cuántos tanques habrá en total; los que sobren los lleva la máquina. */
   tankCount: number;
 
+  /** Cuántos cofres saldrán durante la partida. */
+  chestCount: number;
+
   players: TankPlayer[] = [];
   status: MatchStatus = 'lobby';
   arena: Arena | null = null;
@@ -73,9 +77,10 @@ export class TankMatch {
    */
   wallsDirty = true;
 
-  constructor(id: string, tankCount: number) {
+  constructor(id: string, tankCount: number, chestCount: number = ARENA.defaultChests) {
     this.id = id;
     this.tankCount = clampTanks(tankCount);
+    this.chestCount = clampChests(chestCount);
   }
 
   // -------------------------------------------------------------------------
@@ -131,6 +136,12 @@ export class TankMatch {
     return true;
   }
 
+  setChestCount(token: string, count: number): boolean {
+    if (this.status !== 'lobby' || this.hostToken !== token) return false;
+    this.chestCount = clampChests(count);
+    return true;
+  }
+
   setTankCount(token: string, count: number): boolean {
     if (this.status !== 'lobby' || this.hostToken !== token) return false;
     const wanted = clampTanks(count);
@@ -168,7 +179,7 @@ export class TankMatch {
       specs.push({ id: `cpu${i}`, playerId: null, color: CPU_COLOR });
     }
 
-    this.arena = new Arena(specs);
+    this.arena = new Arena(specs, Date.now(), this.chestCount);
     this.status = 'playing';
     this.wallsDirty = true;
     return true;
@@ -233,6 +244,11 @@ export class TankMatch {
 
 export function hexOf(colorId: string): string {
   return TANK_COLORS.find((c) => c.id === colorId)?.hex ?? CPU_COLOR;
+}
+
+function clampChests(count: number): number {
+  if (!Number.isFinite(count)) return ARENA.defaultChests;
+  return Math.min(MAX_CHESTS, Math.max(0, Math.round(count)));
 }
 
 function clampTanks(count: number): number {
