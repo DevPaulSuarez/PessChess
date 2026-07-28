@@ -141,18 +141,27 @@ console.log('\nDisparar:');
 }
 
 {
-  const { arena } = duel();
-  arena.walls[13][8] = 1;
+  // Un bloque de verdad, en su sitio de la retícula.
+  const arena = new Arena([{ id: 't1', playerId: 'p1', color: '#f00' }], 3, {});
+  for (let y = 0; y < ARENA.size; y++) {
+    for (let x = 0; x < ARENA.size; x++) arena.walls[y][x] = 0;
+  }
+  for (let dy = 0; dy < 2; dy++) {
+    for (let dx = 0; dx < 2; dx++) arena.walls[10 + dy][10 + dx] = 1;
+  }
+  const t = arena.tanks[0];
+  t.x = 7; t.y = 11; t.dir = 'right';
+
   tapFire(arena, 't1');
-  advance(arena, 500);
-  check('un solo tiro no basta con el ladrillo', arena.walls[13][8] === 1,
-    `${arena.walls[13][8]}`);
+  advance(arena, 600);
+  check('un solo tiro no basta con el ladrillo', arena.walls[11][10] === 1,
+    `${arena.walls[11][10]}`);
 
   for (let i = 0; i < 3; i++) {
     tapFire(arena, 't1');
     advance(arena, 700);
   }
-  check('al cuarto cae', arena.walls[13][8] === 0, `${arena.walls[13][8]}`);
+  check('al cuarto cae', arena.walls[11][10] === 0, `${arena.walls[11][10]}`);
 }
 
 {
@@ -167,14 +176,16 @@ console.log('\nCuatro tiros derriban un bloque, desde donde sea:');
 {
   // El bloque va donde de verdad los pone el campo: la retícula de bloques
   // empieza en la celda 2 y avanza de cinco en cinco.
+  // Los bloques van de cuatro en cuatro desde la celda 2, y los pasillos miden
+  // lo mismo que ellos: el tanque entra justo.
   for (const [dir, tx, ty] of [
-    ['right', 9, 13],
-    ['left', 16, 13],
-    ['down', 13, 9],
-    ['up', 13, 16],
+    ['right', 9, 11],
+    ['left', 13, 11],
+    ['down', 11, 9],
+    ['up', 11, 13],
   ]) {
-    const bx = 12;
-    const by = 12;
+    const bx = 10;
+    const by = 10;
     const arena = new Arena([{ id: 't1', playerId: 'p1', color: '#f00' }], 9, {});
     for (let y = 0; y < ARENA.size; y++) {
       for (let x = 0; x < ARENA.size; x++) arena.walls[y][x] = 0;
@@ -214,7 +225,7 @@ console.log('\nAcero y agua:');
 
   chargedFire(arena, 't1');
   advance(arena, 600);
-  check('ni siquiera el cargado puede con él', arena.walls[13][8] === 2,
+  check('ni el cargado, si el arma es floja', arena.walls[13][8] === 2,
     `${arena.walls[13][8]}`);
 }
 
@@ -317,7 +328,7 @@ console.log('\nEncajar en los pasillos:');
 {
   const { arena, a } = duel();
   for (let y = 0; y < ARENA.size; y++) arena.walls[y][10] = 2;
-  for (const y of [12, 13, 14]) arena.walls[y][10] = 0; // pasillo de tres
+  for (const y of [12, 13]) arena.walls[y][10] = 0; // pasillo del ancho justo
   a.x = 8; a.y = 13.6; // desalineado a propósito
 
   arena.setInput('t1', { dir: 'right', firing: false });
@@ -468,6 +479,27 @@ console.log('\nEl cargado sube con el arma:');
   chargedFire(otro.arena, 't1');
   check('y el cargado hace 3: sube igual que el arma',
     otro.arena.bullets[0]?.damage === 3, `${otro.arena.bullets[0]?.damage}`);
+}
+
+console.log('\nEl acero cede solo con un arma de 4:');
+{
+  const { arena, a } = duel();
+  for (const y of [12, 13]) arena.walls[y][8] = 2;
+  a.attack = 3;
+  tapFire(arena, 't1');
+  advance(arena, 600);
+  check('con arma 3 el acero aguanta', arena.walls[13][8] === 2, `${arena.walls[13][8]}`);
+
+  a.attack = 4;
+  tapFire(arena, 't1');
+  advance(arena, 600);
+  // El acero se rompe celda a celda, y la bala toca antes la de arriba.
+  check('con arma 4 se rompe', arena.walls[12][8] === 0, `${arena.walls[12][8]}`);
+
+  tapFire(arena, 't1');
+  advance(arena, 600);
+  check('y el segundo tiro se lleva la otra celda', arena.walls[13][8] === 0,
+    `${arena.walls[13][8]}`);
 }
 
 console.log('\nDerribar un plomo da premio:');
@@ -624,8 +656,8 @@ console.log('\nEl campo está bien formado:');
   // Cada bloque de dos por dos debe estar entero o no estar: las salidas de los
   // tanques despejan bloques completos, nunca media esquina.
   let incompletos = 0;
-  for (let y = 2; y + 2 <= ARENA.size - 2; y += 5) {
-    for (let x = 2; x + 2 <= ARENA.size - 2; x += 5) {
+  for (let y = 2; y + 2 <= ARENA.size - 2; y += 4) {
+    for (let x = 2; x + 2 <= ARENA.size - 2; x += 4) {
       const celdas = [
         arena.walls[y][x], arena.walls[y][x + 1],
         arena.walls[y + 1][x], arena.walls[y + 1][x + 1],

@@ -69,8 +69,10 @@ export interface Bullet {
   y: number;
   dir: Direction;
   damage: number;
-  /** Los cargados revientan el acero y se pintan distintos. */
+  /** Los cargados se pintan distintos y hacen más daño. */
   charged: boolean;
+  /** Solo un arma de nivel 4 puede con el acero. */
+  piercesSteel: boolean;
 }
 
 /**
@@ -89,16 +91,19 @@ const BRICK_HITS = 4;
 
 const BLOCK_ORIGIN = 2;
 const BLOCK_SIZE = 2;
-/** Bloque más pasillo: el hueco de tres es lo que deja circular al tanque. */
-const BLOCK_STEP = BLOCK_SIZE + 3;
+/**
+ * Bloque más pasillo. El pasillo mide lo mismo que el bloque y que el tanque,
+ * igual que en el Battle City original: el tanque entra justo, sin holgura.
+ * Solo funciona porque el movimiento va pegado a la cuadrícula.
+ */
+const BLOCK_STEP = BLOCK_SIZE * 2;
 
 export const ARENA = {
   /** El campo es cuadrado y se mide en celdas. */
   size: 26,
   /**
-   * El tanque mide lo mismo que un bloque de ladrillo. Para que quepa, los
-   * pasillos se hicieron de tres celdas: así queda una celda de holgura y se
-   * entra sin pelearse con el alineamiento.
+   * El tanque mide lo mismo que un bloque y que un pasillo: entra justo, sin
+   * holgura, como en el original. Es la cuadrícula la que hace que se pueda.
    */
   tankSize: BLOCK_SIZE,
   tankSpeed: 6, // celdas por segundo
@@ -127,6 +132,8 @@ export const ARENA = {
   startingDefense: 2,
   /** Los de la máquina son enemigos simples: aguantan lo mismo que un cofre. */
   cpuHp: 3,
+  /** Nivel de arma a partir del cual se puede reventar el acero. */
+  steelBreakerAttack: 4,
   /** Cada cuánto adelanta el mundo el servidor. */
   tickMs: 50,
 } as const;
@@ -333,16 +340,23 @@ export class Arena {
     const [dx, dy] = VECTORS[dir];
     const horizontal = dx !== 0;
 
-    // Primero cuadrar el eje transversal.
+    // El eje transversal se cuadra de golpe, no poco a poco. Con el pasillo
+    // del mismo ancho que el tanque no hay holgura: acercarse por pasitos
+    // dejaría posiciones intermedias que no caben y el tanque se atascaría.
     const current = horizontal ? tank.y : tank.x;
-    const aligned = Math.round(current);
-    if (current !== aligned) {
-      const step = Math.min(distance, Math.abs(aligned - current));
-      const nudged = current + Math.sign(aligned - current) * step;
-      const [tx, ty] = horizontal ? [tank.x, nudged] : [nudged, tank.y];
-      if (this.tankFits(tank, tx, ty)) {
+    if (!Number.isInteger(current)) {
+      // Se prueba la fila más cercana y, si esa no cabe, la de al lado: al
+      // girar en una esquina la más cercana suele estar ocupada.
+      for (const candidate of [
+        Math.round(current),
+        Math.floor(current),
+        Math.ceil(current),
+      ]) {
+        const [tx, ty] = horizontal ? [tank.x, candidate] : [candidate, tank.y];
+        if (!this.tankFits(tank, tx, ty)) continue;
         tank.x = tx;
         tank.y = ty;
+        break;
       }
     }
 
@@ -367,8 +381,10 @@ export class Arena {
     for (let cy = 0; cy < ARENA.size; cy++) {
       for (let cx = 0; cx < ARENA.size; cx++) {
         if (this.walls[cy][cx] !== 3) continue;
-        const x = cx + 0.5;
-        const y = cy + 0.5;
+        // Se sale cuadrado a la retícula: si no, el tanque quedaría a medio
+        // camino entre dos filas y no cabría en ningún pasillo.
+        const x = Math.round(cx);
+        const y = Math.round(cy);
         // Ni al mismo matorral del que salgo, ni a uno donde no quepa.
         if (Math.abs(x - tank.x) < 3 && Math.abs(y - tank.y) < 3) continue;
         if (this.tankFits(tank, x, y)) destinations.push({ x, y });
@@ -419,6 +435,7 @@ export class Arena {
       dir: tank.dir,
       damage,
       charged,
+      piercesSteel: tank.attack >= ARENA.steelBreakerAttack,
     });
   }
 
@@ -512,8 +529,15 @@ export class Arena {
         this.damageBrick(cx, cy);
         return true;
       }
-      // El acero no se rompe con nada: solo detiene la bala.
-      if (cell === 2) return true;
+      if (cell === 2) {
+        // El acero solo cede a un arma muy subida: es la recompensa de haber
+        // ido acumulando cofres amarillos durante la partida.
+        if (bullet.piercesSteel) {
+          this.walls[cy][cx] = 0;
+          this.events.push({ kind: 'brick', x: cx + 0.5, y: cy + 0.5 });
+        }
+        return true;
+      }
       // Arbustos (3), agua (4) y hielo (5) los cruza sin enterarse.
     }
     return false;

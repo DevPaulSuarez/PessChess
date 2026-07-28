@@ -20,9 +20,9 @@ final _outputDir = Directory.systemTemp.path;
 /// El mismo reparto de muros que hace el servidor, para ver algo realista.
 List<int> _walls(int size) {
   final walls = List<int>.filled(size * size, 0);
-  for (var y = 2; y + 2 <= size - 2; y += 5) {
-    for (var x = 2; x + 2 <= size - 2; x += 5) {
-      final block = (x - 2) ~/ 5 + (y - 2) ~/ 5;
+  for (var y = 2; y + 2 <= size - 2; y += 4) {
+    for (var x = 2; x + 2 <= size - 2; x += 4) {
+      final block = (x - 2) ~/ 4 + (y - 2) ~/ 4;
       final cell = block % 11 == 6
           ? 5
           : block % 7 == 4
@@ -80,11 +80,11 @@ void main() {
       tankSize: 2.0,
       yourTankId: 't0',
       tanks: [
-        _tank(id: 't0', color: 0xFFE5383B, name: 'Ana', x: 2, y: 2, dir: 'down'),
-        _tank(id: 't1', color: 0xFF3A86FF, name: 'Beto', x: 24, y: 24, dir: 'up', hp: 2),
-        _tank(id: 't2', color: 0xFF8E8E93, x: 15, y: 6, dir: 'right'),
+        _tank(id: 't0', color: 0xFFE5383B, name: 'Ana', x: 1, y: 5, dir: 'down'),
+        _tank(id: 't1', color: 0xFF3A86FF, name: 'Beto', x: 25, y: 21, dir: 'up', hp: 2),
+        _tank(id: 't2', color: 0xFF8E8E93, x: 13, y: 5, dir: 'right'),
         // Este está metido en un arbusto: debe quedar tapado.
-        _tank(id: 't3', color: 0xFF8E8E93, x: 11.5, y: 11.5, dir: 'left', hp: 1),
+        _tank(id: 't3', color: 0xFF8E8E93, x: 9, y: 13, dir: 'left', hp: 1),
       ],
       bullets: const [
         BulletView(13, 9),
