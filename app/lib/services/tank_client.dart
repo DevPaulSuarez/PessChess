@@ -198,7 +198,8 @@ class EffectView {
   /// Cuánto dura cada clase de animación.
   Duration get duration => switch (kind) {
         'shot' => const Duration(milliseconds: 160),
-        'brick' => const Duration(milliseconds: 320),
+        'crack' => const Duration(milliseconds: 200),
+        'brick' => const Duration(milliseconds: 380),
         _ => const Duration(milliseconds: 600),
       };
 

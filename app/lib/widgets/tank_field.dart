@@ -53,6 +53,14 @@ class TankFieldPainter extends CustomPainter {
             Paint()..color = Colors.amberAccent.withValues(alpha: (1 - t) * 0.7),
           );
 
+        case 'crack':
+          // Chispazo: el ladrillo ha encajado el tiro pero aguanta.
+          canvas.drawCircle(
+            centre,
+            cell * (0.25 + t * 0.35),
+            Paint()..color = Colors.white.withValues(alpha: (1 - t) * 0.8),
+          );
+
         case 'brick':
           // Cascotes saliendo del ladrillo roto.
           final debris = Paint()

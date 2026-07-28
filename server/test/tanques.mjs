@@ -145,7 +145,14 @@ console.log('\nDisparar:');
   arena.walls[13][8] = 1;
   tapFire(arena, 't1');
   advance(arena, 500);
-  check('la bala rompe el ladrillo', arena.walls[13][8] === 0, `${arena.walls[13][8]}`);
+  check('un solo tiro no basta con el ladrillo', arena.walls[13][8] === 1,
+    `${arena.walls[13][8]}`);
+
+  for (let i = 0; i < 3; i++) {
+    tapFire(arena, 't1');
+    advance(arena, 700);
+  }
+  check('al cuarto cae', arena.walls[13][8] === 0, `${arena.walls[13][8]}`);
 }
 
 {
@@ -158,12 +165,16 @@ console.log('\nDisparar:');
 
 console.log('\nCuatro tiros derriban un bloque, desde donde sea:');
 {
-  for (const [dir, tx, ty, bx, by] of [
-    ['right', 6, 13, 10, 12],
-    ['left', 16, 13, 10, 12],
-    ['down', 13, 6, 12, 10],
-    ['up', 13, 16, 12, 10],
+  // El bloque va donde de verdad los pone el campo: la retícula de bloques
+  // empieza en la celda 2 y avanza de cinco en cinco.
+  for (const [dir, tx, ty] of [
+    ['right', 9, 13],
+    ['left', 16, 13],
+    ['down', 13, 9],
+    ['up', 13, 16],
   ]) {
+    const bx = 12;
+    const by = 12;
     const arena = new Arena([{ id: 't1', playerId: 'p1', color: '#f00' }], 9, {});
     for (let y = 0; y < ARENA.size; y++) {
       for (let x = 0; x < ARENA.size; x++) arena.walls[y][x] = 0;
@@ -186,8 +197,9 @@ console.log('\nCuatro tiros derriban un bloque, desde donde sea:');
       advance(arena, 700);
       cuenta.push(rotas());
     }
-    check(`hacia ${dir}: un cuadrante por disparo`,
-      cuenta.join() === '1,2,3,4', cuenta.join());
+    // Aguanta entero los tres primeros y al cuarto cae de golpe.
+    check(`hacia ${dir}: aguanta cuatro tiros y cae entero`,
+      cuenta.join() === '0,0,0,4', cuenta.join());
   }
 }
 
@@ -326,6 +338,9 @@ console.log('\nCofres:');
 
   advance(arena, ARENA.pickupEveryMs * 8);
   check('solo salen los que fijó la sala', arena.pickups.length === 2, `${arena.pickups.length}`);
+  check('y ninguno cae dentro de un obstáculo',
+    arena.pickups.every((p) => arena.walls[Math.floor(p.y)][Math.floor(p.x)] === 0),
+    arena.pickups.map((p) => arena.walls[Math.floor(p.y)][Math.floor(p.x)]).join());
   check('y son de la clase pedida',
     arena.pickups.every((p) => p.kind === 'attack'),
     arena.pickups.map((p) => p.kind).join());
@@ -430,6 +445,29 @@ console.log('\nLos plomos son enemigos, no rivales:');
   maquina.pendingUpgrades = 5;
   check('la máquina no puede gastar mejoras',
     arena.applyUpgrade('cpu1', 'attack') === false);
+}
+
+console.log('\nEl cargado sube con el arma:');
+{
+  const { arena, a } = duel();
+  check('de fábrica: normal 1, cargado 2', a.attack === 1);
+  tapFire(arena, 't1');
+  check('el normal hace el ataque que tengas', arena.bullets[0]?.damage === 1,
+    `${arena.bullets[0]?.damage}`);
+}
+
+{
+  const { arena, a } = duel();
+  a.attack = 2; // como si hubiera cogido un cofre de arma
+  tapFire(arena, 't1');
+  check('con el arma a 2, el normal hace 2', arena.bullets[0]?.damage === 2,
+    `${arena.bullets[0]?.damage}`);
+
+  const otro = duel();
+  otro.a.attack = 2;
+  chargedFire(otro.arena, 't1');
+  check('y el cargado hace 3: sube igual que el arma',
+    otro.arena.bullets[0]?.damage === 3, `${otro.arena.bullets[0]?.damage}`);
 }
 
 console.log('\nDerribar un plomo da premio:');

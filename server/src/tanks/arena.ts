@@ -84,6 +84,9 @@ export interface Bullet {
  */
 export type Cell = 0 | 1 | 2 | 3 | 4 | 5;
 
+/** Impactos que aguanta un bloque de ladrillo antes de caer entero. */
+const BRICK_HITS = 4;
+
 const BLOCK_ORIGIN = 2;
 const BLOCK_SIZE = 2;
 /** Bloque más pasillo: el hueco de tres es lo que deja circular al tanque. */
@@ -157,6 +160,13 @@ export class Arena {
   private sincePickup = 0;
   /** Lo último que soltó un plomo derribado, para poder avisar en pantalla. */
   lastReward: PickupKind | null = null;
+
+  /**
+   * Lo que le queda de vida a cada bloque de ladrillo, por esquina del bloque.
+   * Aguantan cuatro impactos y entonces caen enteros, en vez de irse
+   * desmoronando cuadrante a cuadrante.
+   */
+  private brickHp = new Map<string, number>();
 
   /** Cofres que quedan por salir, ya barajados. Los fija quien crea la sala. */
   private chestQueue: PickupKind[] = [];
@@ -493,17 +503,13 @@ export class Arena {
     // dos cuentas caen en la misma celda y se mira una sola vez.
     const sides = new Set([Math.floor(across - 0.01), Math.floor(across + 0.01)]);
 
-    // Cada disparo se lleva **un solo cuadrante**: el primero que encuentra de
-    // los dos que la junta separa. Así un bloque de dos por dos cae en cuatro
-    // tiros desde el mismo sitio, sin tener que reposicionar el tanque.
     for (const side of sides) {
       const cx = horizontal ? alongCell : side;
       const cy = horizontal ? side : alongCell;
       const cell = this.walls[cy]?.[cx];
 
       if (cell === 1) {
-        this.walls[cy][cx] = 0;
-        this.events.push({ kind: 'brick', x: cx + 0.5, y: cy + 0.5 });
+        this.damageBrick(cx, cy);
         return true;
       }
       // El acero no se rompe con nada: solo detiene la bala.
@@ -511,6 +517,41 @@ export class Arena {
       // Arbustos (3), agua (4) y hielo (5) los cruza sin enterarse.
     }
     return false;
+  }
+
+  /**
+   * Un impacto en un bloque de ladrillo.
+   *
+   * El bloque aguanta cuatro tiros y cae entero. Se lleva la cuenta por bloque
+   * y no por celda: así no se va desmoronando a trozos, que quedaba raro.
+   */
+  private damageBrick(cx: number, cy: number): void {
+    const originX =
+      BLOCK_ORIGIN + Math.floor((cx - BLOCK_ORIGIN) / BLOCK_STEP) * BLOCK_STEP;
+    const originY =
+      BLOCK_ORIGIN + Math.floor((cy - BLOCK_ORIGIN) / BLOCK_STEP) * BLOCK_STEP;
+    const key = `${originX},${originY}`;
+
+    const left = (this.brickHp.get(key) ?? BRICK_HITS) - 1;
+    if (left > 0) {
+      this.brickHp.set(key, left);
+      this.events.push({ kind: 'crack', x: cx + 0.5, y: cy + 0.5 });
+      return;
+    }
+
+    this.brickHp.delete(key);
+    for (let dy = 0; dy < BLOCK_SIZE; dy++) {
+      for (let dx = 0; dx < BLOCK_SIZE; dx++) {
+        if (this.walls[originY + dy]?.[originX + dx] === 1) {
+          this.walls[originY + dy][originX + dx] = 0;
+        }
+      }
+    }
+    this.events.push({
+      kind: 'brick',
+      x: originX + BLOCK_SIZE / 2,
+      y: originY + BLOCK_SIZE / 2,
+    });
   }
 
   private damage(target: Tank, bullet: Bullet): void {
@@ -558,11 +599,27 @@ export class Arena {
     for (let attempt = 0; attempt < 40; attempt++) {
       const x = this.random(ARENA.size - 2) + 1 + 0.5;
       const y = this.random(ARENA.size - 2) + 1 + 0.5;
-      const cell = this.walls[Math.floor(y)][Math.floor(x)];
-      if (cell === 1 || cell === 2) continue;
+
+      // Un cofre solo cae en terreno despejado. Nada de aparecer dentro de un
+      // muro, del agua, de un arbusto o encima de otro cofre o de un tanque:
+      // habría que dispararle a través de algo, o ni se vería.
+      if (this.walls[Math.floor(y)][Math.floor(x)] !== 0) continue;
       if (this.pickups.some((p) => Math.abs(p.x - x) < 2 && Math.abs(p.y - y) < 2)) {
         continue;
       }
+      if (this.tanks.some(
+        (t) => t.alive && Math.abs(t.x - x) < 2 && Math.abs(t.y - y) < 2,
+      )) {
+        continue;
+      }
+      // Y con hueco libre alrededor, para poder rodearlo y apuntarle.
+      const clear = [-1, 0, 1].every((dy) =>
+        [-1, 0, 1].every(
+          (dx) => this.walls[Math.floor(y) + dy]?.[Math.floor(x) + dx] !== 1
+            && this.walls[Math.floor(y) + dy]?.[Math.floor(x) + dx] !== 2,
+        ),
+      );
+      if (!clear) continue;
 
       this.dropChest(x, y, this.chestQueue.shift()!);
       return;
@@ -834,6 +891,7 @@ export class Arena {
       BLOCK_ORIGIN + Math.floor((cx - BLOCK_ORIGIN) / BLOCK_STEP) * BLOCK_STEP;
     const originY =
       BLOCK_ORIGIN + Math.floor((cy - BLOCK_ORIGIN) / BLOCK_STEP) * BLOCK_STEP;
+    this.brickHp.delete(`${originX},${originY}`);
     for (let dy = 0; dy < BLOCK_SIZE; dy++) {
       for (let dx = 0; dx < BLOCK_SIZE; dx++) {
         if (this.walls[originY + dy]?.[originX + dx] !== undefined) {
@@ -869,7 +927,7 @@ export class Arena {
 
 /** Algo que acaba de pasar y la app puede animar. */
 export interface ArenaEvent {
-  kind: 'shot' | 'brick' | 'tank';
+  kind: 'shot' | 'crack' | 'brick' | 'tank';
   x: number;
   y: number;
 }
