@@ -23,15 +23,15 @@ class GameClient extends ChangeNotifier {
 
   /// Servidor al que se conecta la app si el jugador no ha puesto otro.
   ///
-  /// Para una versión que se vaya a repartir hay que fijar aquí la dirección
-  /// del servidor publicado, al compilar:
+  /// Por defecto, el servidor publicado: así la app funciona nada más
+  /// instalarla, sin que nadie tenga que configurar nada.
   ///
-  ///   flutter build ipa --dart-define=SERVER_URL=https://mi-servidor.com
+  /// Para desarrollar contra un servidor en la propia máquina:
   ///
-  /// Sin eso queda el servidor local, que es lo cómodo mientras se desarrolla.
+  ///   flutter run --dart-define=SERVER_URL=http://localhost:3000
   static const defaultServerUrl = String.fromEnvironment(
     'SERVER_URL',
-    defaultValue: 'http://localhost:3000',
+    defaultValue: 'https://ajedrez.devpess.com',
   );
 
   /// Separa el almacenamiento de dos instancias en el mismo ordenador.

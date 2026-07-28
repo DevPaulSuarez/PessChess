@@ -44,19 +44,17 @@ flutter pub get
 flutter run          # elige el dispositivo cuando lo pregunte
 ```
 
-### 3. Conectar el móvil con el servidor
+### 3. Desarrollar contra el servidor de tu máquina
 
-Por defecto la app busca el servidor en `http://localhost:3000`, que solo vale
-si ambos corren en la misma máquina. Desde un móvil de verdad hay que darle la
-dirección del ordenador:
+La app viene apuntando al servidor publicado, así que se juega de verdad sin
+tocar nada. Para probar contra el servidor local hay que pedirlo:
 
-1. Averigua la IP de tu ordenador en la red local:
-   ```bash
-   ipconfig getifaddr en0        # en macOS
-   ```
-2. En la app, toca el engranaje de la pantalla de inicio y escribe
-   `http://ESA_IP:3000`.
-3. El móvil y el ordenador tienen que estar en la misma wifi.
+```bash
+flutter run --dart-define=SERVER_URL=http://localhost:3000
+```
+
+Desde un móvil físico, `localhost` es el propio móvil y no vale: hay que poner
+la IP del ordenador (`ipconfig getifaddr en0`) y estar en la misma wifi.
 
 Para jugar **entre países** no basta con la red local: el servidor tiene que
 estar publicado en internet con una dirección `https://`. Está explicado más
@@ -106,19 +104,18 @@ Compila, sube solo el JavaScript resultante, instala las dependencias allí
 (algunas se compilan para cada sistema, y las de un Mac no sirven en Linux),
 reinicia el servicio y comprueba que responde.
 
-### Apuntar la app al servidor publicado
+### La dirección del servidor en la app
 
-La app trae `http://localhost:3000` por defecto, que es lo cómodo mientras se
-desarrolla. Para una versión que vayas a repartir hay que fijar la dirección
-buena al compilar:
+La app ya viene apuntando a `https://ajedrez.devpess.com`, así que funciona
+nada más instalarla y nadie tiene que configurar nada:
 
 ```bash
-flutter build ipa --dart-define=SERVER_URL=https://ajedrez.tudominio.com
-flutter build apk --dart-define=SERVER_URL=https://ajedrez.tudominio.com
+flutter build apk        # Android
+flutter build ipa        # iOS
 ```
 
-Tiene que ser `https://`. Con `http://` iOS bloquea la conexión, y Android
-también a partir de la versión 9.
+Un servidor publicado tiene que ir por `https://`. Con `http://` iOS bloquea la
+conexión, y Android también a partir de la versión 9.
 
 ## Pruebas
 

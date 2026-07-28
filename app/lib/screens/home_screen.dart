@@ -238,9 +238,8 @@ class _HomeScreenState extends State<HomeScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'Dirección del servidor de partidas. En un móvil real no vale '
-              '"localhost": hay que poner la IP del ordenador (por ejemplo '
-              'http://192.168.1.50:3000) o la dirección donde esté desplegado.',
+              'Dirección del servidor de partidas. Normalmente no hay que '
+              'tocarla: la app ya viene apuntando al servidor correcto.',
               style: TextStyle(fontSize: 13),
             ),
             const SizedBox(height: 16),
@@ -248,7 +247,16 @@ class _HomeScreenState extends State<HomeScreen> {
               controller: controller,
               autocorrect: false,
               keyboardType: TextInputType.url,
-              decoration: const InputDecoration(labelText: 'URL'),
+              decoration: const InputDecoration(labelText: 'Dirección'),
+            ),
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                icon: const Icon(Icons.restart_alt, size: 18),
+                label: const Text('Volver al servidor de siempre'),
+                onPressed: () => controller.text = GameClient.defaultServerUrl,
+              ),
             ),
           ],
         ),
