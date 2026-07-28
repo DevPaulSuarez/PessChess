@@ -212,9 +212,55 @@ async function testFullRoom() {
   inexistente.close();
 }
 
+async function testMapaDibujado() {
+  console.log('\nJugar en un mapa dibujado:');
+
+  // Un mapa reconocible: una franja de acero en la fila 5 y el resto vacío.
+  const celdas = Array(26 * 26).fill('0');
+  for (let x = 0; x < 26; x++) celdas[5 * 26 + x] = '2';
+  const dibujo = celdas.join('');
+
+  const guardado = await fetch(`${URL}/api/maps`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'Franja de acero', cells: dibujo }),
+  }).then((r) => r.json());
+  check('el mapa se guarda desde el editor', typeof guardado.id === 'string', guardado.error);
+
+  const ana = await connect();
+  const beto = await connect();
+  ana.emit('tank_create', { name: 'Ana', tankCount: 2 });
+  const joined = await once(ana, 'tank_joined');
+  beto.emit('tank_join', { code: joined.code, name: 'Beto' });
+  await once(beto, 'tank_joined');
+
+  ana.emit('tank_set_map', { mapId: guardado.id });
+  const conMapa = await until(ana, 'lastLobby', (l) => l.mapId === guardado.id, 'el mapa elegido');
+  check('la sala anuncia el mapa elegido', conMapa.mapName === 'Franja de acero', conMapa.mapName);
+  check('y el mapa aparece en la lista de la sala',
+    conMapa.maps.some((m) => m.id === guardado.id));
+
+  const betoLobby = await until(beto, 'lastLobby', (l) => l.mapId === guardado.id, 'el mapa en el otro');
+  check('el rival también lo ve', betoLobby.mapName === 'Franja de acero', betoLobby.mapName);
+
+  ana.emit('tank_pick_color', { color: 'rojo' });
+  beto.emit('tank_pick_color', { color: 'azul' });
+  await until(ana, 'lastLobby', (l) => l.canStart, 'poder empezar');
+  ana.emit('tank_start');
+  await until(ana, 'lastState', (s) => s.status === 'playing', 'el arranque');
+
+  const fila5 = ana.walls.slice(5 * 26, 6 * 26);
+  check('se juega en el mapa dibujado, no en uno generado',
+    fila5 === '2'.repeat(26), fila5);
+
+  await fetch(`${URL}/api/maps/${guardado.id}`, { method: 'DELETE' });
+  ana.close();
+  beto.close();
+}
+
 // ---------------------------------------------------------------------------
 
-for (const suite of [testLobby, testMatch, testFullRoom]) {
+for (const suite of [testLobby, testMatch, testFullRoom, testMapaDibujado]) {
   try {
     await suite();
   } catch (err) {

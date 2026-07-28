@@ -6,6 +6,7 @@ import { Server, type Socket } from 'socket.io';
 import { GameManager } from './rooms.js';
 import { GAMES, isGameKind, type GameKind } from './rules/registry.js';
 import { TankServer } from './tanks/sockets.js';
+import { MapStore } from './tanks/maps.js';
 import type { Game } from './game.js';
 import type {
   CreateRoomPayload,
@@ -21,6 +22,12 @@ const PORT = Number(process.env.PORT ?? 3000);
 
 const app = express();
 app.use(cors());
+// Los mapas son cadenas de 676 caracteres; con 200 kB va sobrado y evita que
+// alguien intente colar algo enorme.
+app.use(express.json({ limit: '200kb' }));
+
+/** Dónde se guardan los mapas dibujados en el editor. */
+const maps = new MapStore(process.env.MAPS_FILE ?? 'data/maps.json');
 
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
@@ -32,13 +39,40 @@ const io = new Server(httpServer, {
 });
 
 const manager = new GameManager();
-const tanks = new TankServer(io);
+const tanks = new TankServer(io, maps);
 /** En qué partida está cada socket, para no buscarla en cada mensaje. */
 const socketGame = new Map<string, string>();
 
 app.get('/health', (_req, res) => {
   // `games` es cuántas partidas hay abiertas; `offers`, a qué se puede jugar.
   res.json({ ok: true, ...manager.stats, ...tanks.stats, offers: [...Object.keys(GAMES), 'tanks'] });
+});
+
+// ---------------------------------------------------------------------------
+// El editor de mapas
+// ---------------------------------------------------------------------------
+
+// La página del editor se sirve tal cual, sin nada que compilar.
+app.use('/editor', express.static('public/editor'));
+
+app.get('/api/maps', (_req, res) => {
+  res.json(maps.list());
+});
+
+app.get('/api/maps/:id', (req, res) => {
+  const map = maps.get(req.params.id);
+  if (!map) return void res.status(404).json({ error: 'No existe ese mapa.' });
+  res.json(map);
+});
+
+app.post('/api/maps', (req, res) => {
+  const result = maps.save(req.body ?? {});
+  if (!result.ok) return void res.status(400).json({ error: result.error });
+  res.json(result.map);
+});
+
+app.delete('/api/maps/:id', (req, res) => {
+  res.json({ removed: maps.remove(req.params.id) });
 });
 
 // ---------------------------------------------------------------------------

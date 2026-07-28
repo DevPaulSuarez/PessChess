@@ -336,6 +336,38 @@ class _TankScreenState extends State<TankScreen> {
                   ),
                   const SizedBox(height: 20),
 
+                  if (lobby.youAreHost) ...[
+                    Text('Mapa', style: theme.textTheme.labelLarge),
+                    const SizedBox(height: 4),
+                    Text(
+                      lobby.maps.isEmpty
+                          ? 'No hay mapas dibujados. Se jugará en uno generado.'
+                          : 'Dibuja los tuyos en /editor del servidor.',
+                      style: theme.textTheme.bodySmall
+                          ?.copyWith(color: Colors.white60),
+                    ),
+                    const SizedBox(height: 8),
+                    DropdownButtonFormField<String?>(
+                      initialValue: lobby.mapId,
+                      decoration: const InputDecoration(isDense: true),
+                      items: [
+                        const DropdownMenuItem(
+                          value: null,
+                          child: Text('Generado al azar'),
+                        ),
+                        for (final m in lobby.maps)
+                          DropdownMenuItem(value: m.id, child: Text(m.name)),
+                      ],
+                      onChanged: _tanks.pickMap,
+                    ),
+                    const SizedBox(height: 20),
+                  ] else if (lobby.mapName != null)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 16),
+                      child: Text('Mapa: ${lobby.mapName}',
+                          style: theme.textTheme.bodyMedium),
+                    ),
+
                   Text('Elige tu color', style: theme.textTheme.labelLarge),
                   const SizedBox(height: 8),
                   Wrap(

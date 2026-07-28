@@ -210,6 +210,8 @@ export class Arena {
     specs: TankSpec[],
     seed = Date.now(),
     chests: Partial<Record<PickupKind, number>> = {},
+    /** Mapa dibujado en el editor. Sin él se genera uno automático. */
+    layout?: Cell[][],
   ) {
     this.seed = seed >>> 0;
 
@@ -223,7 +225,7 @@ export class Arena {
       const j = this.random(i + 1);
       [this.chestQueue[i], this.chestQueue[j]] = [this.chestQueue[j], this.chestQueue[i]];
     }
-    this.walls = this.buildWalls();
+    this.walls = layout ? layout.map((row) => [...row]) : this.buildWalls();
 
     const spots = this.startingSpots(specs.length);
     specs.forEach((spec, i) => {

@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
+import type { Cell } from './arena.js';
 import {
   Arena,
   ARENA,
@@ -67,6 +68,12 @@ export class TankMatch {
 
   /** Quién creó la sala: es el único que puede empezar y cambiar los ajustes. */
   hostToken: string | null = null;
+
+  /** Mapa dibujado con el que se juega, o null para uno generado. */
+  mapId: string | null = null;
+  mapName: string | null = null;
+  /** El mapa ya resuelto, que se lo pasa quien crea la partida. */
+  private layout: Cell[][] | null = null;
 
   /** Qué tanque lleva cada jugador, una vez empezada la partida. */
   private tankByToken = new Map<string, string>();
@@ -154,6 +161,18 @@ export class TankMatch {
     return true;
   }
 
+  /** Elige el mapa dibujado con el que se jugará. */
+  setMap(
+    token: string,
+    map: { id: string; name: string; layout: Cell[][] } | null,
+  ): boolean {
+    if (this.status !== 'lobby' || this.hostToken !== token) return false;
+    this.mapId = map?.id ?? null;
+    this.mapName = map?.name ?? null;
+    this.layout = map?.layout ?? null;
+    return true;
+  }
+
   setTankCount(token: string, count: number): boolean {
     if (this.status !== 'lobby' || this.hostToken !== token) return false;
     const wanted = clampTanks(count);
@@ -191,7 +210,7 @@ export class TankMatch {
       specs.push({ id: `cpu${i}`, playerId: null, color: CPU_COLOR });
     }
 
-    this.arena = new Arena(specs, Date.now(), this.chests);
+    this.arena = new Arena(specs, Date.now(), this.chests, this.layout ?? undefined);
     this.status = 'playing';
     this.wallsDirty = true;
     return true;

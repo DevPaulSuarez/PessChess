@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Editor de mapas · PessChess</title>
+<style>
+  :root {
+    --fondo: #14110f;
+    --panel: #1e1a18;
+    --borde: #3a3330;
+    --texto: #f0ece8;
+    --apagado: #9a918c;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--fondo);
+    color: var(--texto);
+    font: 15px/1.5 system-ui, -apple-system, sans-serif;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 24px;
+    padding: 24px;
+  }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  p.ayuda { color: var(--apagado); margin: 0 0 18px; font-size: 13px; }
+
+  #lienzo {
+    background: var(--fondo);
+    border: 3px solid #d8d8d8;
+    border-radius: 4px;
+    cursor: crosshair;
+    touch-action: none;
+    max-width: 100%;
+  }
+
+  aside { width: 260px; display: flex; flex-direction: column; gap: 18px; }
+  fieldset { border: 1px solid var(--borde); border-radius: 8px; padding: 12px; margin: 0; }
+  legend { color: var(--apagado); font-size: 12px; padding: 0 6px; }
+
+  .pincel {
+    display: flex; align-items: center; gap: 10px;
+    width: 100%; padding: 8px; margin-bottom: 4px;
+    background: transparent; border: 1px solid transparent; border-radius: 6px;
+    color: var(--texto); font: inherit; text-align: left; cursor: pointer;
+  }
+  .pincel:hover { background: rgba(255,255,255,.06); }
+  .pincel[aria-pressed="true"] { border-color: #fff; background: rgba(255,255,255,.12); }
+  .muestra { width: 22px; height: 22px; border-radius: 4px; border: 1px solid rgba(0,0,0,.4); }
+
+  input[type=text] {
+    width: 100%; padding: 9px; border-radius: 6px;
+    border: 1px solid var(--borde); background: #100e0d; color: var(--texto); font: inherit;
+  }
+  button.accion {
+    width: 100%; padding: 10px; margin-top: 8px; border: 0; border-radius: 6px;
+    background: #8b5e3c; color: #fff; font: inherit; font-weight: 600; cursor: pointer;
+  }
+  button.accion.suave { background: #332c28; }
+  button.accion:hover { filter: brightness(1.15); }
+
+  ul { list-style: none; margin: 0; padding: 0; max-height: 220px; overflow-y: auto; }
+  li { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--borde); }
+  li button { background: none; border: 0; color: var(--texto); font: inherit; cursor: pointer; flex: 1; text-align: left; }
+  li button:hover { text-decoration: underline; }
+  li .borrar { flex: 0; color: #e5838b; font-size: 18px; }
+
+  #aviso { min-height: 20px; font-size: 13px; }
+  #aviso.error { color: #ff8a8a; }
+  #aviso.bien { color: #7fe3a0; }
+</style>
+</head>
+<body>
+
+<main>
+  <h1>Editor de mapas</h1>
+  <p class="ayuda">
+    Elige un material y pinta arrastrando. Con el botón derecho borras.
+    Los tanques necesitan pasillos de dos casillas para pasar.
+  </p>
+  <canvas id="lienzo" width="624" height="624"></canvas>
+</main>
+
+<aside>
+  <fieldset>
+    <legend>Material</legend>
+    <div id="pinceles"></div>
+  </fieldset>
+
+  <fieldset>
+    <legend>Este mapa</legend>
+    <input type="text" id="nombre" placeholder="Nombre del mapa" maxlength="40">
+    <button class="accion" id="guardar">Guardar</button>
+    <button class="accion suave" id="nuevo">Empezar uno vacío</button>
+    <button class="accion suave" id="ejemplo">Rellenar con un patrón</button>
+    <div id="aviso"></div>
+  </fieldset>
+
+  <fieldset>
+    <legend>Mapas guardados</legend>
+    <ul id="lista"></ul>
+  </fieldset>
+</aside>
+
+<script>
+const LADO = 26;
+const MATERIALES = [
+  { valor: 0, nombre: 'Vacío',    color: '#14110f' },
+  { valor: 1, nombre: 'Ladrillo', color: '#9c5a3c' },
+  { valor: 2, nombre: 'Acero',    color: '#9aa0a6' },
+  { valor: 3, nombre: 'Arbusto',  color: '#2e7d32' },
+  { valor: 4, nombre: 'Agua',     color: '#1565c0' },
+  { valor: 5, nombre: 'Hielo',    color: '#9ad5e8' },
+];
+
+const lienzo = document.getElementById('lienzo');
+const pincel2d = lienzo.getContext('2d');
+const celda = lienzo.width / LADO;
+
+let mapa = new Array(LADO * LADO).fill(0);
+let material = 1;
+let idActual = null;
+let pintando = false;
+let borrando = false;
+
+// --- Dibujo ----------------------------------------------------------------
+
+function pintarTodo() {
+  for (let y = 0; y < LADO; y++) {
+    for (let x = 0; x < LADO; x++) {
+      const valor = mapa[y * LADO + x];
+      pincel2d.fillStyle = MATERIALES[valor].color;
+      pincel2d.fillRect(x * celda, y * celda, celda, celda);
+    }
+  }
+  // Retícula suave, para no pintar a ciegas.
+  pincel2d.strokeStyle = 'rgba(255,255,255,.07)';
+  pincel2d.lineWidth = 1;
+  for (let i = 0; i <= LADO; i++) {
+    pincel2d.beginPath();
+    pincel2d.moveTo(i * celda, 0); pincel2d.lineTo(i * celda, lienzo.height);
+    pincel2d.moveTo(0, i * celda); pincel2d.lineTo(lienzo.width, i * celda);
+    pincel2d.stroke();
+  }
+  // Cada dos casillas, una línea más marcada: es el ancho de un tanque.
+  pincel2d.strokeStyle = 'rgba(255,255,255,.18)';
+  for (let i = 0; i <= LADO; i += 2) {
+    pincel2d.beginPath();
+    pincel2d.moveTo(i * celda, 0); pincel2d.lineTo(i * celda, lienzo.height);
+    pincel2d.moveTo(0, i * celda); pincel2d.lineTo(lienzo.width, i * celda);
+    pincel2d.stroke();
+  }
+}
+
+function casillaDe(evento) {
+  const caja = lienzo.getBoundingClientRect();
+  const escala = lienzo.width / caja.width;
+  const x = Math.floor((evento.clientX - caja.left) * escala / celda);
+  const y = Math.floor((evento.clientY - caja.top) * escala / celda);
+  if (x < 0 || y < 0 || x >= LADO || y >= LADO) return null;
+  return y * LADO + x;
+}
+
+function pintarEn(evento) {
+  const indice = casillaDe(evento);
+  if (indice === null) return;
+  mapa[indice] = borrando ? 0 : material;
+  pintarTodo();
+}
+
+lienzo.addEventListener('pointerdown', (e) => {
+  e.preventDefault();
+  pintando = true;
+  borrando = e.button === 2;
+  lienzo.setPointerCapture(e.pointerId);
+  pintarEn(e);
+});
+lienzo.addEventListener('pointermove', (e) => { if (pintando) pintarEn(e); });
+lienzo.addEventListener('pointerup', () => { pintando = false; });
+lienzo.addEventListener('contextmenu', (e) => e.preventDefault());
+
+// --- Paleta ----------------------------------------------------------------
+
+const contenedor = document.getElementById('pinceles');
+for (const m of MATERIALES) {
+  const boton = document.createElement('button');
+  boton.className = 'pincel';
+  boton.setAttribute('aria-pressed', String(m.valor === material));
+  boton.innerHTML = `<span class="muestra" style="background:${m.color}"></span>${m.nombre}`;
+  boton.onclick = () => {
+    material = m.valor;
+    for (const otro of contenedor.children) otro.setAttribute('aria-pressed', 'false');
+    boton.setAttribute('aria-pressed', 'true');
+  };
+  contenedor.appendChild(boton);
+}
+
+// --- Guardar y cargar ------------------------------------------------------
+
+const aviso = document.getElementById('aviso');
+function avisar(texto, clase) {
+  aviso.textContent = texto;
+  aviso.className = clase ?? '';
+}
+
+async function refrescarLista() {
+  const lista = document.getElementById('lista');
+  const mapas = await (await fetch('/api/maps')).json();
+  lista.innerHTML = '';
+
+  if (mapas.length === 0) {
+    lista.innerHTML = '<li style="color:#9a918c;border:0">Todavía no hay ninguno.</li>';
+    return;
+  }
+
+  for (const m of mapas) {
+    const fila = document.createElement('li');
+    const abrir = document.createElement('button');
+    abrir.textContent = m.name;
+    abrir.onclick = async () => {
+      const completo = await (await fetch(`/api/maps/${m.id}`)).json();
+      mapa = [...completo.cells].map(Number);
+      idActual = completo.id;
+      document.getElementById('nombre').value = completo.name;
+      pintarTodo();
+      avisar(`Abierto «${completo.name}»`, 'bien');
+    };
+
+    const borrar = document.createElement('button');
+    borrar.className = 'borrar';
+    borrar.textContent = '×';
+    borrar.title = 'Borrar';
+    borrar.onclick = async () => {
+      if (!confirm(`¿Borrar «${m.name}»?`)) return;
+      await fetch(`/api/maps/${m.id}`, { method: 'DELETE' });
+      if (idActual === m.id) idActual = null;
+      refrescarLista();
+    };
+
+    fila.append(abrir, borrar);
+    lista.appendChild(fila);
+  }
+}
+
+document.getElementById('guardar').onclick = async () => {
+  const respuesta = await fetch('/api/maps', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      id: idActual,
+      name: document.getElementById('nombre').value,
+      cells: mapa.join(''),
+    }),
+  });
+  const cuerpo = await respuesta.json();
+  if (!respuesta.ok) return avisar(cuerpo.error, 'error');
+
+  idActual = cuerpo.id;
+  avisar(`Guardado «${cuerpo.name}»`, 'bien');
+  refrescarLista();
+};
+
+document.getElementById('nuevo').onclick = () => {
+  mapa = new Array(LADO * LADO).fill(0);
+  idActual = null;
+  document.getElementById('nombre').value = '';
+  pintarTodo();
+  avisar('');
+};
+
+// Un patrón de arranque, para no empezar con la hoja en blanco.
+document.getElementById('ejemplo').onclick = () => {
+  mapa = new Array(LADO * LADO).fill(0);
+  for (let y = 2; y + 2 <= LADO - 2; y += 4) {
+    for (let x = 2; x + 2 <= LADO - 2; x += 4) {
+      const bloque = (x - 2) / 4 + (y - 2) / 4;
+      const valor = bloque % 11 === 6 ? 5
+        : bloque % 7 === 4 ? 4
+        : bloque % 5 === 2 ? 3
+        : bloque % 3 === 0 ? 2 : 1;
+      for (let dy = 0; dy < 2; dy++) {
+        for (let dx = 0; dx < 2; dx++) mapa[(y + dy) * LADO + (x + dx)] = valor;
+      }
+    }
+  }
+  pintarTodo();
+  avisar('Patrón de ejemplo: retócalo a tu gusto.');
+};
+
+pintarTodo();
+refrescarLista();
+</script>
+</body>
+</html>

@@ -142,6 +142,9 @@ class TankLobby {
     required this.players,
     required this.youAreHost,
     required this.yourColor,
+    required this.mapId,
+    required this.mapName,
+    required this.maps,
   });
 
   final String code;
@@ -161,6 +164,13 @@ class TankLobby {
   final List<LobbyPlayer> players;
   final bool youAreHost;
   final String? yourColor;
+
+  /// Mapa dibujado con el que se jugará, o null para uno generado.
+  final String? mapId;
+  final String? mapName;
+
+  /// Los mapas guardados en el editor, para poder elegir.
+  final List<({String id, String name})> maps;
 
   /// Cuántos tanques llevará la máquina con los jugadores que hay ahora.
   int get cpuTanks => (tankCount - players.length).clamp(0, tankCount);
@@ -186,6 +196,14 @@ class TankLobby {
             .toList(),
         youAreHost: json['youAreHost'] as bool,
         yourColor: json['yourColor'] as String?,
+        mapId: json['mapId'] as String?,
+        mapName: json['mapName'] as String?,
+        maps: ((json['maps'] as List?) ?? [])
+            .map((m) => (
+                  id: (m as Map)['id'] as String,
+                  name: m['name'] as String,
+                ))
+            .toList(),
       );
 }
 
@@ -378,6 +396,9 @@ class TankClient extends ChangeNotifier {
       _socket?.emit('tank_set_count', {'tankCount': count});
 
   void start() => _socket?.emit('tank_start');
+
+  /// Elige el mapa dibujado, o null para uno generado al azar.
+  void pickMap(String? mapId) => _socket?.emit('tank_set_map', {'mapId': mapId});
 
   /// Avisa de lo que el jugador tiene pulsado.
   ///

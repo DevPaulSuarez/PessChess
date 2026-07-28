@@ -2,6 +2,7 @@ import type { Server, Socket } from 'socket.io';
 
 import { ARENA, type Direction, type Upgrade } from './arena.js';
 import { MAX_CHESTS, MAX_TANKS, MIN_TANKS, TANK_COLORS, TankMatch } from './match.js';
+import type { MapStore } from './maps.js';
 
 /**
  * Todo lo que tiene que ver con la red en las partidas de tanques.
@@ -22,7 +23,10 @@ export class TankServer {
   private socketMatch = new Map<string, string>();
   private loop: NodeJS.Timeout | null = null;
 
-  constructor(private readonly io: Server) {}
+  constructor(
+    private readonly io: Server,
+    private readonly maps: MapStore,
+  ) {}
 
   get stats() {
     return {
@@ -82,6 +86,22 @@ export class TankServer {
       if (!match || !player) return;
       if (!match.pickColor(player.token, String(payload?.color ?? ''))) {
         this.fail(socket, 'Ese color ya lo ha cogido otro.');
+      }
+      this.sendLobby(match);
+    });
+
+    socket.on('tank_set_map', (payload) => {
+      const { match, player } = this.find(socket);
+      if (!match || !player) return;
+
+      const id = payload?.mapId;
+      if (!id) {
+        match.setMap(player.token, null);
+      } else {
+        const map = this.maps.get(String(id));
+        const layout = this.maps.layout(String(id));
+        if (!map || !layout) return this.fail(socket, 'Ese mapa ya no existe.');
+        match.setMap(player.token, { id: map.id, name: map.name, layout });
       }
       this.sendLobby(match);
     });
@@ -238,6 +258,9 @@ export class TankServer {
       colors: TANK_COLORS,
       taken: match.takenColors(),
       canStart: match.canStart,
+      mapId: match.mapId,
+      mapName: match.mapName,
+      maps: this.maps.list(),
       players: match.players.map((p) => ({
         name: p.name,
         color: p.color,
