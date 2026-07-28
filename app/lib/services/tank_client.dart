@@ -184,6 +184,33 @@ class TankLobby {
       );
 }
 
+/// Algo que acaba de pasar y hay que animar: un disparo, un ladrillo roto o un
+/// tanque destruido. Se apaga solo con el tiempo.
+class EffectView {
+  EffectView(this.kind, this.x, this.y) : bornAt = DateTime.now();
+
+  /// 'shot', 'brick' o 'tank'.
+  final String kind;
+  final double x;
+  final double y;
+  final DateTime bornAt;
+
+  /// Cuánto dura cada clase de animación.
+  Duration get duration => switch (kind) {
+        'shot' => const Duration(milliseconds: 160),
+        'brick' => const Duration(milliseconds: 320),
+        _ => const Duration(milliseconds: 600),
+      };
+
+  /// De 0 (recién ocurrido) a 1 (ya terminado).
+  double get progress {
+    final elapsed = DateTime.now().difference(bornAt).inMilliseconds;
+    return (elapsed / duration.inMilliseconds).clamp(0, 1).toDouble();
+  }
+
+  bool get done => progress >= 1;
+}
+
 /// El mundo en un instante.
 class TankWorld {
   const TankWorld({
@@ -195,6 +222,7 @@ class TankWorld {
     required this.bullets,
     required this.pickups,
     required this.walls,
+    required this.effects,
     required this.winner,
   });
 
@@ -205,6 +233,7 @@ class TankWorld {
   final List<TankView> tanks;
   final List<BulletView> bullets;
   final List<PickupView> pickups;
+  final List<EffectView> effects;
 
   /// El campo, celda a celda: 0 vacío, 1 ladrillo, 2 acero.
   final List<int> walls;
@@ -242,6 +271,10 @@ class TankClient extends ChangeNotifier {
   /// El campo llega solo cuando cambia, así que hay que recordarlo.
   List<int> _walls = const [];
 
+  /// Animaciones en curso. Duran más que el mensaje que las provocó, así que
+  /// se guardan aquí y se van apagando solas.
+  final List<EffectView> _effects = [];
+
   TankLobby? get lobby => _lobby;
   TankWorld? get world => _world;
   String? get code => _code;
@@ -263,6 +296,16 @@ class TankClient extends ChangeNotifier {
 
     socket.on('tank_state', (data) {
       final json = (data as Map).cast<String, dynamic>();
+      for (final event in (json['events'] as List?) ?? []) {
+        final e = (event as Map).cast<String, dynamic>();
+        _effects.add(EffectView(
+          e['kind'] as String,
+          (e['x'] as num).toDouble(),
+          (e['y'] as num).toDouble(),
+        ));
+      }
+      _effects.removeWhere((e) => e.done);
+
       final walls = json['walls'] as String?;
       if (walls != null) {
         _walls = walls.split('').map(int.parse).toList(growable: false);
@@ -292,6 +335,7 @@ class TankClient extends ChangeNotifier {
                 ))
             .toList(),
         walls: _walls,
+        effects: List.unmodifiable(_effects),
         winner: json['winner'] == null
             ? null
             : (
@@ -360,6 +404,7 @@ class TankClient extends ChangeNotifier {
     _code = null;
     _error = null;
     _walls = const [];
+    _effects.clear();
     _lastSentInput = null;
   }
 }

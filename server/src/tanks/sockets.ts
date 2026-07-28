@@ -169,7 +169,9 @@ export class TankServer {
     const walls = match.wallsDirty ? match.wallsAsText() : undefined;
     match.wallsDirty = false;
 
-    const tanks = arena.tanks.map((tank) => ({
+    // El estado se arma por jugador porque lo que ve cada uno cambia: un tanque
+    // metido en un arbusto está oculto para los demás pero no para sí mismo.
+    const describe = (tank: (typeof arena.tanks)[number]) => ({
       id: tank.id,
       color: tank.color,
       name: match.players.find((p) => p.token === tank.playerId)?.name ?? null,
@@ -187,7 +189,7 @@ export class TankServer {
       chargeMs: ARENA.chargeMs,
       kills: tank.kills,
       upgrades: tank.pendingUpgrades,
-    }));
+    });
 
     const bullets = arena.bullets.map((b) => ({
       x: round(b.x),
@@ -203,15 +205,20 @@ export class TankServer {
 
     for (const player of match.players) {
       if (!player.socketId) continue;
+      const yourTankId = match.tankIdOf(player.token) ?? null;
+
       this.io.to(player.socketId).emit('tank_state', {
         status: match.status,
         size: ARENA.size,
         tankSize: ARENA.tankSize,
-        yourTankId: match.tankIdOf(player.token) ?? null,
-        tanks,
+        yourTankId,
+        tanks: arena.tanks
+          .filter((tank) => !arena.isHiddenFrom(tank, yourTankId))
+          .map(describe),
         bullets,
         pickups,
         walls,
+        events: arena.events,
         winner: match.winner,
       });
     }

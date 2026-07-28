@@ -56,6 +56,10 @@ export interface Tank {
   kills: number;
   /** Mejoras ganadas por destruir tanques y aún sin gastar. */
   pendingUpgrades: number;
+  /** Momento del último disparo: dispara desde un arbusto y te delatas. */
+  lastShotAt: number;
+  /** Milisegundos que le queda de patinazo sobre el hielo. */
+  sliding: number;
 }
 
 export interface Bullet {
@@ -76,8 +80,9 @@ export interface Bullet {
  *  2 acero    — solo lo revienta un disparo cargado
  *  3 arbusto  — no frena a nadie; tapa a quien se meta
  *  4 agua     — corta el paso a los tanques, pero las balas la cruzan
+ *  5 hielo    — se pasa por encima, pero el tanque patina al soltar
  */
-export type Cell = 0 | 1 | 2 | 3 | 4;
+export type Cell = 0 | 1 | 2 | 3 | 4 | 5;
 
 const BLOCK_ORIGIN = 2;
 const BLOCK_SIZE = 2;
@@ -95,9 +100,18 @@ export const ARENA = {
   tankSize: BLOCK_SIZE,
   tankSpeed: 6, // celdas por segundo
   bulletSpeed: 18,
-  bulletCooldown: 400, // ms
+  /**
+   * Recarga entre disparos. El cargado tarda más en volver: si no, saldría a
+   * cascoporro y no habría motivo para usar nunca el normal.
+   */
+  bulletCooldown: 500,
+  chargedCooldown: 1100,
   /** Cuánto hay que mantener pulsado para que el disparo salga cargado. */
-  chargeMs: 550,
+  chargeMs: 900,
+  /** Tras disparar desde un arbusto, el tanque queda a la vista este rato. */
+  revealMs: 1500,
+  /** Cuánto sigue patinando un tanque al salir del hielo. */
+  slideMs: 450,
   /** Tras salir de un portal, no vuelve a teletransportarse en este tiempo. */
   teleportCooldownMs: 2000,
   /** Cada cuánto sale un cofre y cuánto aguanta antes de reventar. */
@@ -129,6 +143,13 @@ export class Arena {
 
   /** Cofres que hay ahora mismo por el campo. */
   pickups: Pickup[] = [];
+
+  /**
+   * Lo que ha pasado en este paso y merece una animación: disparos, ladrillos
+   * reventados, tanques destruidos. El servidor los reparte y los vacía; la app
+   * los usa para pintar destellos y explosiones.
+   */
+  events: ArenaEvent[] = [];
 
   private inputs = new Map<string, TankInput>();
   private nextBulletId = 1;
@@ -193,6 +214,8 @@ export class Arena {
         teleportCooldown: 0,
         kills: 0,
         pendingUpgrades: 0,
+        lastShotAt: -Infinity,
+        sliding: 0,
       });
       this.clearAround(spot.x, spot.y);
     });
@@ -238,6 +261,7 @@ export class Arena {
   tick(deltaMs: number): void {
     const dt = deltaMs / 1000;
     this.clock += deltaMs;
+    this.events = [];
 
     for (const tank of this.tanks) {
       if (!tank.alive) continue;
@@ -253,6 +277,12 @@ export class Arena {
       if (input.dir) {
         tank.dir = input.dir;
         this.moveTank(tank, input.dir, ARENA.tankSpeed * dt);
+        this.maybeTeleport(tank);
+        // Sobre hielo el tanque coge carrerilla y no se para en seco.
+        tank.sliding = this.terrainUnder(tank) === 5 ? ARENA.slideMs : 0;
+      } else if (tank.sliding > 0) {
+        tank.sliding = Math.max(0, tank.sliding - deltaMs);
+        this.moveTank(tank, tank.dir, ARENA.tankSpeed * dt);
         this.maybeTeleport(tank);
       }
       this.handleTrigger(tank, input.firing, deltaMs);
@@ -335,9 +365,29 @@ export class Arena {
     }
   }
 
+  /** El terreno que hay bajo el centro del tanque. */
+  terrainUnder(tank: Tank): Cell | undefined {
+    return this.walls[Math.floor(tank.y)]?.[Math.floor(tank.x)];
+  }
+
+  /**
+   * ¿Este tanque está oculto para quien mira?
+   *
+   * Metido en un arbusto no se le ve, salvo que acabe de disparar: así el
+   * arbusto sirve para emboscar, pero disparar desde dentro te delata y no se
+   * vuelve un escondite impune. El tanque propio siempre se ve.
+   */
+  isHiddenFrom(tank: Tank, viewerId: string | null): boolean {
+    if (tank.id === viewerId) return false;
+    if (this.terrainUnder(tank) !== 3) return false;
+    return this.clock - tank.lastShotAt > ARENA.revealMs;
+  }
+
   private fire(tank: Tank, damage: number, charged = false): void {
     if (tank.cooldown > 0) return;
-    tank.cooldown = ARENA.bulletCooldown;
+    tank.cooldown = charged ? ARENA.chargedCooldown : ARENA.bulletCooldown;
+    tank.lastShotAt = this.clock;
+    this.events.push({ kind: 'shot', x: tank.x, y: tank.y });
 
     const [dx, dy] = VECTORS[tank.dir];
     const nose = ARENA.tankSize / 2 + 0.1;
@@ -445,10 +495,14 @@ export class Arena {
 
       if (cell === 1) {
         this.walls[cy][cx] = 0; // el ladrillo se rompe por trozos
+        this.events.push({ kind: 'brick', x: cx + 0.5, y: cy + 0.5 });
         consumed = true;
       } else if (cell === 2) {
         // El acero solo cede a un disparo cargado. Es la ventaja de cargar.
-        if (bullet.charged) this.walls[cy][cx] = 0;
+        if (bullet.charged) {
+          this.walls[cy][cx] = 0;
+          this.events.push({ kind: 'brick', x: cx + 0.5, y: cy + 0.5 });
+        }
         consumed = true;
       }
       // Arbustos (3) y agua (4) las cruza sin enterarse.
@@ -468,6 +522,7 @@ export class Arena {
     if (target.hp > 0) return;
 
     target.alive = false;
+    this.events.push({ kind: 'tank', x: target.x, y: target.y });
     const shooter = this.tanks.find((t) => t.id === bullet.tankId);
     if (shooter) {
       shooter.kills++;
@@ -705,6 +760,7 @@ export class Arena {
         // Los arbustos no estorban; el agua sí, aunque las balas la crucen.
         const cell = this.walls[cy]?.[cx];
         if (cell === 1 || cell === 2 || cell === 4) return false;
+        // Los arbustos (3) y el hielo (5) se pisan sin problema.
       }
     }
 
@@ -736,7 +792,15 @@ export class Arena {
         // Uno de cada tres bloques es de acero y uno de cada cinco, arbustos:
         // no frenan, pero tapan a quien se meta dentro.
         const cell: Cell =
-          block % 7 === 4 ? 4 : block % 5 === 2 ? 3 : block % 3 === 0 ? 2 : 1;
+          block % 11 === 6
+            ? 5
+            : block % 7 === 4
+              ? 4
+              : block % 5 === 2
+                ? 3
+                : block % 3 === 0
+                  ? 2
+                  : 1;
         for (let dy = 0; dy < BLOCK_SIZE; dy++) {
           for (let dx = 0; dx < BLOCK_SIZE; dx++) {
             walls[y + dy][x + dx] = cell;
@@ -801,6 +865,13 @@ export class Arena {
     this.seed = (this.seed * 1664525 + 1013904223) >>> 0;
     return this.seed % max;
   }
+}
+
+/** Algo que acaba de pasar y la app puede animar. */
+export interface ArenaEvent {
+  kind: 'shot' | 'brick' | 'tank';
+  x: number;
+  y: number;
 }
 
 const VECTORS: Record<Direction, [number, number]> = {

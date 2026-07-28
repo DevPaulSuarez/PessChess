@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../services/tank_client.dart';
@@ -16,6 +18,7 @@ class TankFieldPainter extends CustomPainter {
   static const _steel = Color(0xFF9AA0A6);
   static const _bush = Color(0xFF2E7D32);
   static const _water = Color(0xFF1565C0);
+  static const _ice = Color(0xFF9AD5E8);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -29,7 +32,61 @@ class TankFieldPainter extends CustomPainter {
     // Los arbustos se pintan los últimos, encima de todo: de eso se trata,
     // de que tapen a quien se meta debajo.
     _paintBushes(canvas, cell);
+    _paintEffects(canvas, cell);
     _paintBorder(canvas, cell);
+  }
+
+  /// Explosiones y destellos. Van encima de los arbustos: si un tanque revienta
+  /// dentro de uno, la explosión debe verse igual.
+  void _paintEffects(Canvas canvas, double cell) {
+    for (final effect in world.effects) {
+      final centre = Offset(effect.x * cell, effect.y * cell);
+      final t = effect.progress;
+      if (t >= 1) continue;
+
+      switch (effect.kind) {
+        case 'shot':
+          // Fogonazo breve al salir la bala.
+          canvas.drawCircle(
+            centre,
+            cell * (0.5 + t * 0.4),
+            Paint()..color = Colors.amberAccent.withValues(alpha: (1 - t) * 0.7),
+          );
+
+        case 'brick':
+          // Cascotes saliendo del ladrillo roto.
+          final debris = Paint()
+            ..color = _brick.withValues(alpha: (1 - t).clamp(0, 1).toDouble());
+          for (var i = 0; i < 6; i++) {
+            final angle = i * 1.05;
+            final distance = cell * (0.2 + t * 1.1);
+            canvas.drawRect(
+              Rect.fromCenter(
+                center: centre.translate(
+                  distance * math.cos(angle),
+                  distance * math.sin(angle),
+                ),
+                width: cell * 0.3 * (1 - t),
+                height: cell * 0.3 * (1 - t),
+              ),
+              debris,
+            );
+          }
+
+        case 'tank':
+          // Bola de fuego que se abre y se apaga.
+          canvas.drawCircle(
+            centre,
+            cell * (0.6 + t * 2.2),
+            Paint()..color = Colors.deepOrange.withValues(alpha: (1 - t) * 0.55),
+          );
+          canvas.drawCircle(
+            centre,
+            cell * (0.3 + t * 1.4),
+            Paint()..color = Colors.amber.withValues(alpha: (1 - t) * 0.9),
+          );
+      }
+    }
   }
 
   /// Marco del campo. Sin él no se ve dónde acaba el terreno y parece que se
@@ -68,6 +125,18 @@ class TankFieldPainter extends CustomPainter {
         if (value == 0 || value == 3) continue; // los arbustos van aparte
 
         final rect = Rect.fromLTWH(x * cell, y * cell, cell, cell);
+        if (value == 5) {
+          // Hielo: se pisa, pero el tanque patina al soltar.
+          canvas.drawRect(rect, Paint()..color = _ice);
+          canvas.drawLine(
+            Offset(rect.left + cell * 0.2, rect.bottom - cell * 0.2),
+            Offset(rect.right - cell * 0.2, rect.top + cell * 0.2),
+            Paint()
+              ..color = Colors.white.withValues(alpha: 0.7)
+              ..strokeWidth = cell * 0.08,
+          );
+          continue;
+        }
         if (value == 4) {
           // Agua: corta el paso a los tanques pero las balas la cruzan.
           canvas.drawRect(rect, Paint()..color = _water);

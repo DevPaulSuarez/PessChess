@@ -639,6 +639,122 @@ console.log('\nLos arbustos son portales:');
     `${partida.x},${partida.y} -> ${maquina.x.toFixed(1)},${maquina.y.toFixed(1)}`);
 }
 
+console.log('\nEsconderse en un arbusto:');
+{
+  const { arena, a, b } = duel();
+  for (const y of [12, 13, 14]) {
+    for (let x = 4; x <= 7; x++) arena.walls[y][x] = 3;
+  }
+  a.x = 5; a.y = 13;
+
+  check('metido en el arbusto, el rival no lo ve', arena.isHiddenFrom(a, 't2') === true);
+  check('pero él sí se ve a sí mismo', arena.isHiddenFrom(a, 't1') === false);
+
+  // Disparar delata la posición durante un rato.
+  tapFire(arena, 't1');
+  check('disparar desde el arbusto lo delata', arena.isHiddenFrom(a, 't2') === false);
+
+  advance(arena, ARENA.revealMs + 200);
+  check('y pasado un rato vuelve a esconderse', arena.isHiddenFrom(a, 't2') === true);
+}
+
+{
+  const { arena, a } = duel();
+  check('a campo abierto no se esconde nadie', arena.isHiddenFrom(a, 't2') === false);
+}
+
+console.log('\nEl hielo hace patinar:');
+{
+  const { arena, a } = duel();
+  for (const y of [12, 13, 14]) {
+    for (let x = 4; x <= 14; x++) arena.walls[y][x] = 5;
+  }
+  a.x = 5; a.y = 13;
+
+  arena.setInput('t1', { dir: 'right', firing: false });
+  advance(arena, 300);
+  const alSoltar = a.x;
+
+  arena.setInput('t1', { dir: null, firing: false });
+  advance(arena, 200);
+  check('sigue avanzando tras soltar', a.x > alSoltar + 0.5, `${alSoltar.toFixed(1)} -> ${a.x.toFixed(1)}`);
+
+  advance(arena, ARENA.slideMs + 200);
+  const parado = a.x;
+  advance(arena, 300);
+  check('pero acaba parándose', Math.abs(a.x - parado) < 0.01, `${parado} -> ${a.x}`);
+}
+
+{
+  const { arena, a } = duel();
+  const x0 = a.x;
+  arena.setInput('t1', { dir: 'right', firing: false });
+  advance(arena, 300);
+  arena.setInput('t1', { dir: null, firing: false });
+  const alSoltar = a.x;
+  advance(arena, 400);
+  check('en tierra firme se para en seco', Math.abs(a.x - alSoltar) < 0.01,
+    `${alSoltar} -> ${a.x}`);
+}
+
+console.log('\nBalance de las armas:');
+{
+  const { arena, a } = duel();
+  tapFire(arena, 't1');
+  check('el disparo normal recarga en medio segundo', a.cooldown === ARENA.bulletCooldown,
+    `${a.cooldown}`);
+}
+
+{
+  const { arena, a } = duel();
+  chargedFire(arena, 't1');
+  check('el cargado tarda más en volver', a.cooldown === ARENA.chargedCooldown,
+    `${a.cooldown}`);
+  check('y es más del doble que el normal',
+    ARENA.chargedCooldown > ARENA.bulletCooldown * 2, `${ARENA.chargedCooldown}`);
+}
+
+{
+  const { arena } = duel();
+  // Soltar antes de tiempo da un disparo normal, no uno cargado.
+  arena.setInput('t1', { dir: null, firing: true });
+  for (let t = 0; t < ARENA.chargeMs - 200; t += ARENA.tickMs) arena.tick(ARENA.tickMs);
+  arena.setInput('t1', { dir: null, firing: false });
+  arena.tick(ARENA.tickMs);
+  check('soltar antes del 100% da disparo normal',
+    arena.bullets[0]?.charged === false && arena.bullets[0]?.damage === 1,
+    `cargado=${arena.bullets[0]?.charged} daño=${arena.bullets[0]?.damage}`);
+}
+
+console.log('\nAvisos para las animaciones:');
+{
+  const { arena } = duel();
+  arena.walls[13][9] = 1;
+  tapFire(arena, 't1');
+  check('avisa del disparo', arena.events.some((e) => e.kind === 'shot'),
+    arena.events.map((e) => e.kind).join());
+
+  advance(arena, 400);
+  const todos = [];
+  for (let t = 0; t < 600; t += ARENA.tickMs) {
+    arena.tick(ARENA.tickMs);
+    todos.push(...arena.events.map((e) => e.kind));
+  }
+  check('los avisos se vacían cada paso', arena.events.length <= 3, `${arena.events.length}`);
+}
+
+{
+  const { arena, b } = duel();
+  b.hp = 1; b.defense = 0;
+  tapFire(arena, 't1');
+  let derribo = false;
+  for (let t = 0; t < 900; t += ARENA.tickMs) {
+    arena.tick(ARENA.tickMs);
+    if (arena.events.some((e) => e.kind === 'tank')) derribo = true;
+  }
+  check('avisa del tanque destruido', derribo);
+}
+
 console.log('\nUna partida entera no se cuelga:');
 {
   const arena = new Arena(

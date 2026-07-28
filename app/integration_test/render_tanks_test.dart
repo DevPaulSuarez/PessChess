@@ -23,11 +23,13 @@ List<int> _walls(int size) {
   for (var y = 2; y + 2 <= size - 2; y += 5) {
     for (var x = 2; x + 2 <= size - 2; x += 5) {
       final block = (x - 2) ~/ 5 + (y - 2) ~/ 5;
-      final cell = block % 7 == 4
-          ? 4
-          : block % 5 == 2
-              ? 3
-              : (block % 3 == 0 ? 2 : 1);
+      final cell = block % 11 == 6
+          ? 5
+          : block % 7 == 4
+              ? 4
+              : block % 5 == 2
+                  ? 3
+                  : (block % 3 == 0 ? 2 : 1);
       for (var dy = 0; dy < 2; dy++) {
         for (var dx = 0; dx < 2; dx++) {
           walls[(y + dy) * size + (x + dx)] = cell;
@@ -94,6 +96,11 @@ void main() {
         PickupView('attack', 11, 22, hp: 1),
       ],
       walls: _walls(size),
+      effects: [
+        EffectView('brick', 9, 5),
+        EffectView('tank', 20, 17),
+        EffectView('shot', 2, 4),
+      ],
       winner: null,
     );
 
