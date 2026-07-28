@@ -1,0 +1,45 @@
+# Servicio de systemd para el servidor de PessChess.
+#
+# Instalación:
+#   sudo cp deploy/pesschess.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now pesschess
+#
+# Ver qué está haciendo:   sudo journalctl -u pesschess -f
+# Reiniciar tras cambios:  sudo systemctl restart pesschess
+
+[Unit]
+Description=Servidor de ajedrez PessChess
+After=network.target
+
+[Service]
+Type=simple
+
+# El repositorio se clona entero en /opt/pesschess, y el servidor vive en su
+# subcarpeta `server`.
+User=pesschess
+WorkingDirectory=/opt/pesschess/server
+ExecStart=/usr/bin/node dist/index.js
+
+Environment=NODE_ENV=production
+Environment=PORT=3100
+
+# En un servidor pequeño conviene poner techo al montón de memoria de Node:
+# así, si algo se desmadra, se queja en vez de tumbar la máquina entera.
+Environment=NODE_OPTIONS=--max-old-space-size=192
+
+Restart=always
+RestartSec=3
+
+# Endurecimiento básico: el proceso no necesita tocar casi nada del sistema.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+
+# Techo de memoria del servicio. Si lo supera, systemd lo reinicia solo en
+# lugar de dejar que el núcleo mate cualquier otra cosa del servidor.
+MemoryMax=256M
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,340 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+import 'package:pesschess/models/game_state.dart';
+import 'package:pesschess/screens/game_screen.dart';
+import 'package:pesschess/widgets/chess_board.dart';
+import 'package:pesschess/widgets/piece_shapes.dart';
+
+const _startFen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+
+/// Estado mínimo de partida para las pruebas.
+GameState _state({
+  String fen = _startFen,
+  PieceColor yourColor = PieceColor.white,
+  String turn = 'w',
+  String status = 'active',
+  List<Map<String, dynamic>> legalMoves = const [],
+  String? result,
+  String? endReason,
+}) {
+  return GameState.fromJson({
+    'gameId': 'ABCD',
+    'status': status,
+    'fen': fen,
+    'turn': turn,
+    'yourColor': yourColor.code,
+    'white': {'name': 'Ana', 'connected': true},
+    'black': {'name': 'Beto', 'connected': true},
+    'timeControl': {'initialMs': 600000, 'incrementMs': 0},
+    'clocks': {'w': 600000, 'b': 600000},
+    'lastMove': null,
+    'history': <String>[],
+    'inCheck': false,
+    'legalMoves': legalMoves,
+    'drawOfferFrom': null,
+    'result': result,
+    'endReason': endReason,
+  });
+}
+
+Widget _wrap(Widget child) => MaterialApp(home: Scaffold(body: child));
+
+/// Las piezas que hay pintadas ahora mismo en el tablero.
+List<PiecePainter> _paintedPieces(WidgetTester tester) => tester
+    .widgetList<CustomPaint>(find.byType(CustomPaint))
+    .map((c) => c.painter)
+    .whereType<PiecePainter>()
+    .toList();
+
+void main() {
+  group('Lectura del FEN', () {
+    test('coloca las 32 piezas de la posición inicial', () {
+      final pieces = parseFen(_startFen);
+      expect(pieces.length, 32);
+      expect(pieces['e1']!.type, 'k');
+      expect(pieces['e1']!.color, PieceColor.white);
+      expect(pieces['d8']!.type, 'q');
+      expect(pieces['d8']!.color, PieceColor.black);
+      expect(pieces['a2']!.type, 'p');
+      expect(pieces['e4'], isNull);
+    });
+
+    test('cuenta bien las casillas vacías', () {
+      final pieces = parseFen('4k3/8/8/8/8/8/8/4K3 w - - 0 1');
+      expect(pieces.length, 2);
+      expect(pieces['e1']!.type, 'k');
+      expect(pieces['e8']!.type, 'k');
+    });
+
+    test('lee una posición a medio jugar', () {
+      final pieces = parseFen(
+          'rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2');
+      expect(pieces['e4']!.color, PieceColor.white);
+      expect(pieces['e5']!.color, PieceColor.black);
+      expect(pieces['e2'], isNull);
+      expect(pieces['e7'], isNull);
+    });
+  });
+
+  group('Reloj', () {
+    test('muestra minutos y segundos', () {
+      expect(formatClock(600000), '10:00');
+      expect(formatClock(65000), '1:05');
+      expect(formatClock(60000), '1:00');
+    });
+
+    test('añade la décima por debajo de 10 segundos', () {
+      expect(formatClock(9500), '0:09.5');
+      expect(formatClock(500), '0:00.5');
+      expect(formatClock(0), '0:00.0');
+    });
+  });
+
+  group('Fin de partida', () {
+    test('anuncia la victoria a quien gana', () {
+      final state = _state(
+        yourColor: PieceColor.white,
+        status: 'finished',
+        result: '1-0',
+        endReason: 'checkmate',
+      );
+      expect(state.outcomeMessage, contains('¡Has ganado!'));
+      expect(state.outcomeMessage, contains('jaque mate'));
+    });
+
+    test('anuncia la derrota a quien pierde', () {
+      final state = _state(
+        yourColor: PieceColor.black,
+        status: 'finished',
+        result: '1-0',
+        endReason: 'timeout',
+      );
+      expect(state.outcomeMessage, contains('Has perdido'));
+      expect(state.outcomeMessage, contains('se acabó el tiempo'));
+    });
+
+    test('las tablas no tienen ganador', () {
+      final state = _state(
+        status: 'finished',
+        result: '1/2-1/2',
+        endReason: 'draw_agreed',
+      );
+      expect(state.outcomeMessage, startsWith('Tablas'));
+    });
+  });
+
+  group('Tablero', () {
+    testWidgets('dibuja las 64 casillas', (tester) async {
+      await tester.pumpWidget(_wrap(ChessBoard(
+        state: _state(),
+        onMove: (_, __, ___) {},
+        askPromotion: () async => null,
+      )));
+
+      expect(find.byType(GestureDetector), findsNWidgets(64));
+    });
+
+    testWidgets('tocar pieza y destino confirma la jugada', (tester) async {
+      String? movedFrom;
+      String? movedTo;
+
+      await tester.pumpWidget(_wrap(ChessBoard(
+        state: _state(legalMoves: [
+          {'from': 'e2', 'to': 'e4', 'san': 'e4'},
+        ]),
+        onMove: (from, to, promotion) {
+          movedFrom = from;
+          movedTo = to;
+        },
+        askPromotion: () async => null,
+      )));
+
+      // Blancas abajo: e2 está en la fila 6 (contando desde arriba) y columna 4.
+      final squares = find.byType(GestureDetector);
+      await tester.tap(squares.at(6 * 8 + 4));
+      await tester.pump();
+      await tester.tap(squares.at(4 * 8 + 4));
+      await tester.pump();
+
+      expect(movedFrom, 'e2');
+      expect(movedTo, 'e4');
+    });
+
+    testWidgets('el caballo puede capturar', (tester) async {
+      String? from;
+      String? to;
+
+      // Caballo blanco en e4 con peones negros a tiro en d6 y f6.
+      await tester.pumpWidget(_wrap(ChessBoard(
+        state: _state(
+          fen: '4k3/8/3p1p2/8/4N3/8/8/4K3 w - - 0 1',
+          legalMoves: [
+            {'from': 'e4', 'to': 'd6', 'san': 'Cxd6+'},
+            {'from': 'e4', 'to': 'f6', 'san': 'Cxf6+'},
+            {'from': 'e4', 'to': 'c5', 'san': 'Cc5'},
+          ],
+        ),
+        onMove: (f, t, _) {
+          from = f;
+          to = t;
+        },
+        askPromotion: () async => null,
+      )));
+
+      await tester.tap(find.byKey(const ValueKey('square-e4')));
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('square-d6')));
+      await tester.pump();
+
+      expect(from, 'e4');
+      expect(to, 'd6', reason: 'El caballo debe poder comerse el peón de d6');
+    });
+
+    testWidgets('no deja mover cuando no es tu turno', (tester) async {
+      var moved = false;
+
+      await tester.pumpWidget(_wrap(ChessBoard(
+        // Turno de las negras: el servidor no ha dado jugadas legales.
+        state: _state(turn: 'b'),
+        onMove: (_, __, ___) => moved = true,
+        askPromotion: () async => null,
+      )));
+
+      final squares = find.byType(GestureDetector);
+      await tester.tap(squares.at(6 * 8 + 4));
+      await tester.pump();
+      await tester.tap(squares.at(4 * 8 + 4));
+      await tester.pump();
+
+      expect(moved, isFalse);
+    });
+
+    testWidgets('pregunta a qué pieza coronar', (tester) async {
+      String? chosenPromotion;
+      var asked = false;
+
+      // Peón blanco en b7 a punto de coronar.
+      await tester.pumpWidget(_wrap(ChessBoard(
+        state: _state(
+          fen: '4k3/1P6/8/8/8/8/8/4K3 w - - 0 1',
+          legalMoves: [
+            {'from': 'b7', 'to': 'b8', 'promotion': 'q', 'san': 'b8=D'},
+            {'from': 'b7', 'to': 'b8', 'promotion': 'n', 'san': 'b8=C'},
+          ],
+        ),
+        onMove: (_, __, promotion) => chosenPromotion = promotion,
+        askPromotion: () async {
+          asked = true;
+          return 'n';
+        },
+      )));
+
+      final squares = find.byType(GestureDetector);
+      await tester.tap(squares.at(1 * 8 + 1)); // b7
+      await tester.pump();
+      await tester.tap(squares.at(0 * 8 + 1)); // b8
+      await tester.pumpAndSettle();
+
+      expect(asked, isTrue);
+      expect(chosenPromotion, 'n');
+    });
+
+    testWidgets('en 3D sigue habiendo 64 casillas tocables', (tester) async {
+      await tester.pumpWidget(_wrap(ChessBoard(
+        state: _state(),
+        perspective: true,
+        onMove: (_, _, _) {},
+        askPromotion: () async => null,
+      )));
+
+      expect(find.byType(GestureDetector), findsNWidgets(64));
+      // Si la perspectiva dejase alguna casilla fuera de alcance, el juego
+      // sería injugable en 3D.
+      for (final square in ['a1', 'h1', 'a8', 'h8', 'e4', 'd5']) {
+        expect(
+          find.byKey(ValueKey('square-$square')).hitTestable(),
+          findsOneWidget,
+          reason: 'La casilla $square no se puede tocar en 3D',
+        );
+      }
+    });
+
+    testWidgets('en 3D el toque cae en la casilla correcta', (tester) async {
+      String? from;
+      String? to;
+
+      await tester.pumpWidget(_wrap(ChessBoard(
+        state: _state(legalMoves: [
+          {'from': 'e2', 'to': 'e4', 'san': 'e4'},
+        ]),
+        perspective: true,
+        onMove: (f, t, _) {
+          from = f;
+          to = t;
+        },
+        askPromotion: () async => null,
+      )));
+
+      // Se toca donde se ve cada casilla en pantalla, ya deformada por la
+      // perspectiva. Si la transformación no convirtiese las coordenadas del
+      // toque, esto acabaría en otra casilla.
+      await tester.tapAt(
+          tester.getCenter(find.byKey(const ValueKey('square-e2'))));
+      await tester.pump();
+      await tester.tapAt(
+          tester.getCenter(find.byKey(const ValueKey('square-e4'))));
+      await tester.pump();
+
+      expect(from, 'e2');
+      expect(to, 'e4');
+    });
+
+    testWidgets('las dos vistas dibujan las mismas piezas', (tester) async {
+      for (final perspective in [false, true]) {
+        await tester.pumpWidget(_wrap(ChessBoard(
+          state: _state(),
+          perspective: perspective,
+          onMove: (_, _, _) {},
+          askPromotion: () async => null,
+        )));
+
+        final pieces = _paintedPieces(tester);
+        expect(pieces.length, 32,
+            reason: 'Faltan piezas con perspective=$perspective');
+
+        // Las piezas se dibujaron durante un tiempo con símbolos de fuente, y
+        // el peón blanco salía negro porque el sistema lo sustituía por un
+        // emoji, que lleva su propio color. Esto lo vigila.
+        final whitePawns = pieces
+            .where((p) => p.type == 'p' && p.color == PieceColor.white)
+            .length;
+        final blackPawns = pieces
+            .where((p) => p.type == 'p' && p.color == PieceColor.black)
+            .length;
+        expect(whitePawns, 8, reason: 'Peones blancos con perspective=$perspective');
+        expect(blackPawns, 8, reason: 'Peones negros con perspective=$perspective');
+
+        // Y un bando entero de cada color.
+        expect(pieces.where((p) => p.color == PieceColor.white).length, 16);
+        expect(pieces.where((p) => p.color == PieceColor.black).length, 16);
+      }
+    });
+
+    testWidgets('el tablero se gira para las negras', (tester) async {
+      await tester.pumpWidget(_wrap(ChessBoard(
+        state: _state(
+          fen: '4k3/8/8/8/8/8/8/4K2R w - - 0 1',
+          yourColor: PieceColor.black,
+          turn: 'b',
+        ),
+        onMove: (_, __, ___) {},
+        askPromotion: () async => null,
+      )));
+
+      // Con las negras abajo, la esquina superior izquierda es la fila 1.
+      final firstLabel = tester.widgetList<Text>(find.byType(Text)).first;
+      expect(firstLabel.data, '1');
+    });
+  });
+}
