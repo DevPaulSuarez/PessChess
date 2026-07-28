@@ -4,6 +4,42 @@
 /// contrato.
 library;
 
+/// Los juegos que ofrece el servidor.
+///
+/// Para añadir uno: una entrada aquí, otra en el registro del servidor, y las
+/// formas de sus piezas. El resto —salas, relojes, emparejamiento, reconexión—
+/// no hay que tocarlo.
+enum GameKind {
+  chess(
+    code: 'chess',
+    name: 'Ajedrez',
+    description: 'El de siempre, con jaque mate, enroque y coronación.',
+    emoji: '♞',
+  ),
+  draughts(
+    code: 'draughts',
+    name: 'Damas',
+    description: 'Damas inglesas: comer es obligatorio y al final coronas.',
+    emoji: '⛃',
+  );
+
+  const GameKind({
+    required this.code,
+    required this.name,
+    required this.description,
+    required this.emoji,
+  });
+
+  /// Lo que entiende el servidor.
+  final String code;
+  final String name;
+  final String description;
+  final String emoji;
+
+  static GameKind fromCode(String code) =>
+      GameKind.values.firstWhere((g) => g.code == code, orElse: () => GameKind.chess);
+}
+
 enum PieceColor { white, black }
 
 extension PieceColorX on PieceColor {
@@ -105,6 +141,7 @@ class Move {
 class GameState {
   GameState({
     required this.gameId,
+    required this.game,
     required this.status,
     required this.fen,
     required this.turn,
@@ -123,6 +160,10 @@ class GameState {
   });
 
   final String gameId;
+
+  /// A qué se está jugando en esta sala.
+  final GameKind game;
+
   final GameStatus status;
   final String fen;
   final PieceColor turn;
@@ -156,6 +197,7 @@ class GameState {
 
     return GameState(
       gameId: json['gameId'] as String,
+      game: GameKind.fromCode(json['game'] as String? ?? 'chess'),
       status: _statusFrom(json['status'] as String),
       fen: json['fen'] as String,
       turn: PieceColorX.fromCode(json['turn'] as String),
@@ -196,6 +238,8 @@ class GameState {
       'threefold_repetition' => 'repetición de jugadas',
       'fifty_move_rule' => 'regla de las 50 jugadas',
       'timeout' => 'se acabó el tiempo',
+      'blocked' => 'sin fichas ni jugadas posibles',
+      'no_progress' => 'nadie avanzaba',
       'resignation' => 'abandono',
       'draw_agreed' => 'acuerdo entre jugadores',
       'abandoned' => 'partida abandonada',

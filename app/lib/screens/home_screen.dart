@@ -14,9 +14,20 @@ const _timeControls = <(String, TimeControl?)>[
 ];
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key, required this.client});
+  const HomeScreen({
+    super.key,
+    required this.client,
+    required this.game,
+    required this.onBack,
+  });
 
   final GameClient client;
+
+  /// A qué se va a jugar en la sala que se cree desde aquí.
+  final GameKind game;
+
+  /// Volver a la pantalla de elección de juego.
+  final VoidCallback onBack;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -72,12 +83,12 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _createRoom() async {
     await _saveName();
-    _client.createRoom(_selectedTimeControl);
+    _client.createRoom(widget.game, _selectedTimeControl);
   }
 
   Future<void> _quickMatch() async {
     await _saveName();
-    _client.quickMatch(_selectedTimeControl);
+    _client.quickMatch(widget.game, _selectedTimeControl);
   }
 
   Future<void> _joinRoom() async {
@@ -105,11 +116,19 @@ class _HomeScreenState extends State<HomeScreen> {
                     children: [
                       Row(
                         children: [
-                          Text('♞', style: TextStyle(fontSize: 40, color: theme.colorScheme.primary)),
-                          const SizedBox(width: 12),
+                          IconButton(
+                            icon: const Icon(Icons.arrow_back),
+                            tooltip: 'Elegir otro juego',
+                            onPressed: widget.onBack,
+                          ),
+                          Text(widget.game.emoji,
+                              style: TextStyle(
+                                  fontSize: 34,
+                                  color: theme.colorScheme.primary)),
+                          const SizedBox(width: 10),
                           Text(
-                            'PessChess',
-                            style: theme.textTheme.headlineMedium
+                            widget.game.name,
+                            style: theme.textTheme.headlineSmall
                                 ?.copyWith(fontWeight: FontWeight.bold),
                           ),
                           const Spacer(),

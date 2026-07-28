@@ -218,6 +218,7 @@ class _ChessBoardState extends State<ChessBoard> {
                     key: ValueKey('square-$square'),
                     size: squareSize,
                     tilt: tilt,
+                    game: _state.game,
                     // a1 es casilla negra y h1 blanca: "la clara, a la derecha".
                     isLight: (fileIndex + rank) % 2 == 0,
                     piece: pieces[square],
@@ -297,6 +298,7 @@ class _Square extends StatelessWidget {
     super.key,
     required this.size,
     required this.tilt,
+    required this.game,
     required this.isLight,
     required this.piece,
     required this.isSelected,
@@ -313,6 +315,9 @@ class _Square extends StatelessWidget {
 
   /// Inclinación del tablero. Cero en el modo plano.
   final double tilt;
+
+  /// A qué se juega: decide la silueta de las piezas.
+  final GameKind game;
 
   final bool isLight;
   final Piece? piece;
@@ -431,13 +436,14 @@ class _Square extends StatelessWidget {
                       child: _PieceGlyph(
                         piece: piece!,
                         size: size,
+                        game: game,
                         standing: true,
                       ),
                     ),
                   ),
                 ),
               ] else
-                _PieceGlyph(piece: piece!, size: size),
+                _PieceGlyph(piece: piece!, size: size, game: game),
 
             if (!is3d && isDestination) _hint(),
           ],
@@ -481,11 +487,13 @@ class _PieceGlyph extends StatelessWidget {
   const _PieceGlyph({
     required this.piece,
     required this.size,
+    required this.game,
     this.standing = false,
   });
 
   final Piece piece;
   final double size;
+  final GameKind game;
 
   /// En el modo 3D la pieza se apoya sobre la casilla en vez de centrarse en
   /// ella, y se dibuja algo más grande para compensar el escorzo.
@@ -507,6 +515,7 @@ class _PieceGlyph extends StatelessWidget {
             painter: PiecePainter(
               type: piece.type,
               color: piece.color,
+              game: game,
               shaded: standing,
             ),
           ),
@@ -542,7 +551,11 @@ Future<String?> showPromotionPicker(BuildContext context, PieceColor color) {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      _PieceGlyph(piece: Piece(type, color), size: 52),
+                      _PieceGlyph(
+                        piece: Piece(type, color),
+                        size: 52,
+                        game: GameKind.chess,
+                      ),
                       const SizedBox(height: 4),
                       Text(label, style: const TextStyle(fontSize: 11)),
                     ],

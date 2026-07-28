@@ -174,13 +174,50 @@ Path _king() {
   return p;
 }
 
+/// Ficha de damas: un disco. La dama lleva una corona encima.
+///
+/// Es un dibujo aparte porque una ficha no tiene la misma silueta que una pieza
+/// de ajedrez, pero se pinta con las mismas reglas de color y contorno.
+void _paintDraughtsPiece(Canvas canvas, String type, Paint fill, Paint stroke) {
+  const centre = Offset(0.5, 0.5);
+
+  canvas.drawCircle(centre, 0.36, fill);
+  canvas.drawCircle(centre, 0.36, stroke);
+  // Anillo interior: le da el aspecto de ficha torneada en vez de un círculo
+  // plano, y ayuda a verla sobre casillas del mismo color.
+  canvas.drawCircle(centre, 0.26, stroke);
+
+  if (type != 'k') return;
+
+  // Corona para la dama coronada.
+  final crown = Path()
+    ..moveTo(0.36, 0.58)
+    ..lineTo(0.33, 0.43)
+    ..lineTo(0.41, 0.50)
+    ..lineTo(0.50, 0.39)
+    ..lineTo(0.59, 0.50)
+    ..lineTo(0.67, 0.43)
+    ..lineTo(0.64, 0.58)
+    ..close();
+  canvas.drawPath(crown, stroke..style = PaintingStyle.fill);
+  stroke.style = PaintingStyle.stroke;
+}
+
 /// Pinta una pieza rellena, con contorno del color contrario para que se
 /// distinga igual de bien sobre casillas claras y oscuras.
 class PiecePainter extends CustomPainter {
-  const PiecePainter({required this.type, required this.color, this.shaded = false});
+  const PiecePainter({
+    required this.type,
+    required this.color,
+    this.game = GameKind.chess,
+    this.shaded = false,
+  });
 
   final String type;
   final PieceColor color;
+
+  /// De qué juego es la pieza: cambia la silueta, no los colores.
+  final GameKind game;
 
   /// Añade un degradado suave que simula volumen. Se usa en la vista 3D.
   final bool shaded;
@@ -201,16 +238,6 @@ class PiecePainter extends CustomPainter {
     canvas.translate((size.width - scale) / 2, (size.height - scale) / 2);
     canvas.scale(scale);
 
-    final path = piecePath(type);
-
-    // Sombra propia, para despegar la pieza del tablero.
-    canvas.drawPath(
-      path.shift(const Offset(0.015, 0.015)),
-      Paint()
-        ..color = Colors.black.withValues(alpha: 0.28)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 0.012),
-    );
-
     final fillPaint = Paint()..style = PaintingStyle.fill;
     if (shaded) {
       // Luz desde arriba a la izquierda.
@@ -224,21 +251,39 @@ class PiecePainter extends CustomPainter {
     } else {
       fillPaint.color = _fill;
     }
-    canvas.drawPath(path, fillPaint);
 
+    final strokePaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 0.022
+      ..strokeJoin = StrokeJoin.round
+      ..color = _stroke;
+
+    if (game == GameKind.draughts) {
+      _paintDraughtsPiece(canvas, type, fillPaint, strokePaint);
+      canvas.restore();
+      return;
+    }
+
+    final path = piecePath(type);
+
+    // Sombra propia, para despegar la pieza del tablero.
     canvas.drawPath(
-      path,
+      path.shift(const Offset(0.015, 0.015)),
       Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 0.022
-        ..strokeJoin = StrokeJoin.round
-        ..color = _stroke,
+        ..color = Colors.black.withValues(alpha: 0.28)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 0.012),
     );
+
+    canvas.drawPath(path, fillPaint);
+    canvas.drawPath(path, strokePaint);
 
     canvas.restore();
   }
 
   @override
   bool shouldRepaint(PiecePainter old) =>
-      old.type != type || old.color != color || old.shaded != shaded;
+      old.type != type ||
+      old.color != color ||
+      old.game != game ||
+      old.shaded != shaded;
 }

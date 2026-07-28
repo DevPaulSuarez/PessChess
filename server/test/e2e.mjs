@@ -418,6 +418,85 @@ async function testTimeout() {
   black.close();
 }
 
+async function testDraughts() {
+  console.log('\nUna partida de damas por la red:');
+  const white = await connect();
+  const black = await connect();
+
+  white.emit('create_room', { name: 'Ana', game: 'draughts', timeControl: null });
+  const joined = await once(white, 'joined');
+  black.emit('join_room', { name: 'Beto', code: joined.code });
+  await once(black, 'joined');
+
+  const active = await stateWhere(white, (s) => s.status === 'active');
+  check('la sala es de damas', active.game === 'draughts', active.game);
+  check(
+    'el tablero empieza con las doce fichas de cada bando',
+    active.fen.split(' ')[0] === '1p1p1p1p/p1p1p1p1/1p1p1p1p/8/8/P1P1P1P1/1P1P1P1P/P1P1P1P1',
+    active.fen.split(' ')[0],
+  );
+  check('hay siete aperturas', active.legalMoves.length === 7, `${active.legalMoves.length}`);
+  check('en damas nunca hay jaque', active.inCheck === false);
+
+  // Las blancas avanzan y las negras se ponen a tiro.
+  const tras = await playMoves(white, black, [
+    { from: 'c3', to: 'd4' },
+    { from: 'b6', to: 'c5' },
+  ]);
+  check('las jugadas se anotan con guion', tras.history[0] === 'c3-d4', tras.history[0]);
+
+  // Ahora comer es obligatorio y solo hay una forma.
+  const forzado = await stateWhere(white, (s) => s.history.length === 2);
+  check('comer es obligatorio', forzado.legalMoves.length === 1, `${forzado.legalMoves.length}`);
+  check('y es el salto correcto', forzado.legalMoves[0].san === 'd4xb6', forzado.legalMoves[0].san);
+
+  // Una jugada que no sea comer se rechaza.
+  white.emit('move', { from: 'a3', to: 'b4' });
+  const error = await once(white, 'error_msg');
+  check('rechaza no comer pudiendo', error.code === 'bad_move', error.code);
+
+  const comido = await playMoves(white, black, [{ from: 'd4', to: 'b6' }], 2);
+  check('la captura se anota con equis', comido.history.at(-1) === 'd4xb6', comido.history.at(-1));
+
+  // El rival abandona: el final funciona igual que en ajedrez.
+  black.emit('resign');
+  const fin = await stateWhere(white, (s) => s.status === 'finished');
+  check('el abandono también vale en damas', fin.result === '1-0', fin.result);
+
+  white.close();
+  black.close();
+}
+
+async function testGamesAreSeparate() {
+  console.log('\nLos juegos no se mezclan:');
+  const a = await connect();
+  const b = await connect();
+
+  a.emit('quick_match', { name: 'Ana', game: 'chess', timeControl: null });
+  await once(a, 'queued');
+  b.emit('quick_match', { name: 'Beto', game: 'draughts', timeControl: null });
+  await once(b, 'queued');
+
+  let emparejados = false;
+  a.once('joined', () => { emparejados = true; });
+  await new Promise((r) => setTimeout(r, 500));
+  check('no empareja a quien juega a cosas distintas', !emparejados);
+
+  // Pero con el mismo juego sí.
+  const c = await connect();
+  c.emit('quick_match', { name: 'Carlos', game: 'draughts', timeControl: null });
+  const [bJoined, cJoined] = await Promise.all([once(b, 'joined'), once(c, 'joined')]);
+  check('sí empareja a dos de damas', bJoined.gameId === cJoined.gameId);
+
+  const partida = await stateWhere(b, (s) => s.status === 'active');
+  check('y la partida es de damas', partida.game === 'draughts', partida.game);
+
+  a.emit('cancel_queue');
+  a.close();
+  b.close();
+  c.close();
+}
+
 // ---------------------------------------------------------------------------
 
 const suites = [
@@ -428,6 +507,8 @@ const suites = [
   testReconnect,
   testBadRoomCode,
   testClock,
+  testDraughts,
+  testGamesAreSeparate,
 ];
 
 if (process.env.SKIP_SLOW !== '1') suites.push(testTimeout);

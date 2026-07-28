@@ -11,6 +11,7 @@ const _startFen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 /// Estado mínimo de partida para las pruebas.
 GameState _state({
   String fen = _startFen,
+  String game = 'chess',
   PieceColor yourColor = PieceColor.white,
   String turn = 'w',
   String status = 'active',
@@ -20,6 +21,7 @@ GameState _state({
 }) {
   return GameState.fromJson({
     'gameId': 'ABCD',
+    'game': game,
     'status': status,
     'fen': fen,
     'turn': turn,
@@ -396,6 +398,98 @@ void main() {
         expect(pieces.where((p) => p.color == PieceColor.white).length, 16);
         expect(pieces.where((p) => p.color == PieceColor.black).length, 16);
       }
+    });
+
+    group('Damas', () {
+      const inicio =
+          '1p1p1p1p/p1p1p1p1/1p1p1p1p/8/8/P1P1P1P1/1P1P1P1P/P1P1P1P1 w - - 0 1';
+
+      testWidgets('dibuja veinticuatro fichas', (tester) async {
+        await tester.pumpWidget(_wrap(ChessBoard(
+          state: _state(fen: inicio, game: 'draughts'),
+          onMove: (_, _, _) {},
+          askPromotion: () async => null,
+        )));
+
+        final pieces = _paintedPieces(tester);
+        expect(pieces.length, 24);
+        expect(pieces.every((p) => p.game == GameKind.draughts), isTrue,
+            reason: 'Deben dibujarse como fichas, no como piezas de ajedrez');
+        expect(pieces.where((p) => p.color == PieceColor.white).length, 12);
+        expect(pieces.where((p) => p.color == PieceColor.black).length, 12);
+      });
+
+      testWidgets('mover una ficha manda la jugada', (tester) async {
+        String? from, to;
+
+        await tester.pumpWidget(_wrap(ChessBoard(
+          state: _state(fen: inicio, game: 'draughts', legalMoves: [
+            {'from': 'c3', 'to': 'd4', 'san': 'c3-d4'},
+          ]),
+          onMove: (f, t, _) {
+            from = f;
+            to = t;
+          },
+          askPromotion: () async => null,
+        )));
+
+        await tester.tap(find.byKey(const ValueKey('square-c3')));
+        await tester.pump();
+        await tester.tap(find.byKey(const ValueKey('square-d4')));
+        await tester.pump();
+
+        expect(from, 'c3');
+        expect(to, 'd4');
+      });
+
+      testWidgets('nunca pregunta por coronar', (tester) async {
+        var asked = false;
+
+        // En damas la coronación es automática: el servidor no manda jugadas
+        // con opción de pieza, así que el diálogo no debe salir jamás.
+        await tester.pumpWidget(_wrap(ChessBoard(
+          state: _state(
+            fen: '8/1P6/8/8/8/8/8/8 w - - 0 1',
+            game: 'draughts',
+            legalMoves: [
+              {'from': 'b7', 'to': 'a8', 'san': 'b7-a8=D'},
+              {'from': 'b7', 'to': 'c8', 'san': 'b7-c8=D'},
+            ],
+          ),
+          onMove: (_, _, _) {},
+          askPromotion: () async {
+            asked = true;
+            return null;
+          },
+        )));
+
+        await tester.tap(find.byKey(const ValueKey('square-b7')));
+        await tester.pump();
+        await tester.tap(find.byKey(const ValueKey('square-a8')));
+        await tester.pumpAndSettle();
+
+        expect(asked, isFalse);
+      });
+
+      test('los finales propios de damas se explican', () {
+        final bloqueado = _state(
+          game: 'draughts',
+          status: 'finished',
+          result: '1-0',
+          endReason: 'blocked',
+        );
+        expect(bloqueado.outcomeMessage, contains('¡Has ganado!'));
+        expect(bloqueado.outcomeMessage, contains('sin fichas'));
+
+        final tablas = _state(
+          game: 'draughts',
+          status: 'finished',
+          result: '1/2-1/2',
+          endReason: 'no_progress',
+        );
+        expect(tablas.outcomeMessage, contains('Tablas'));
+        expect(tablas.outcomeMessage, contains('nadie avanzaba'));
+      });
     });
 
     testWidgets('el tablero se gira para las negras', (tester) async {

@@ -27,9 +27,11 @@ final _outputDir = const String.fromEnvironment('SALIDA').isEmpty
     ? Directory.systemTemp.path
     : const String.fromEnvironment('SALIDA');
 
-GameState _state(String fen, {List<Map<String, dynamic>> legalMoves = const []}) {
+GameState _state(String fen,
+    {String game = 'chess', List<Map<String, dynamic>> legalMoves = const []}) {
   return GameState.fromJson({
     'gameId': 'ABCD',
+    'game': game,
     'status': 'active',
     'fen': fen,
     'turn': 'w',
@@ -95,6 +97,51 @@ void main() {
       final name = perspective ? 'tablero_3d.png' : 'tablero_2d.png';
       File('$_outputDir/$name').writeAsBytesSync(png!.buffer.asUint8List());
       debugPrint('Guardado $_outputDir/$name');
+    }
+  });
+
+  testWidgets('guarda una imagen de las damas', (tester) async {
+    const inicio =
+        '1p1p1p1p/p1p1p1p1/1p1p1p1p/8/8/P1P1P1P1/1P1P1P1P/P1P1P1P1 w - - 0 1';
+    // Una dama coronada y unas fichas movidas, para ver los dos dibujos.
+    const media = '1p1p1p1p/p1p1K1p1/1p3p2/2p5/3P4/P1P1P1P1/1P3P1P/P1P1k1P1 w - - 0 1';
+
+    for (final (nombre, fen) in [('damas', inicio), ('damas_media', media)]) {
+      final key = GlobalKey();
+      await tester.pumpWidget(MaterialApp(
+        debugShowCheckedModeBanner: false,
+        home: Scaffold(
+          backgroundColor: const Color(0xFF14110F),
+          body: Center(
+            child: RepaintBoundary(
+              key: key,
+              child: SizedBox(
+                width: 560,
+                height: 560,
+                child: ChessBoard(
+                  state: _state(fen, game: 'draughts', legalMoves: [
+                    {'from': 'c3', 'to': 'd4', 'san': 'c3-d4'},
+                  ]),
+                  onMove: (_, _, _) {},
+                  askPromotion: () async => null,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ));
+      await tester.pump(const Duration(milliseconds: 300));
+
+      final boundary =
+          key.currentContext!.findRenderObject()! as RenderRepaintBoundary;
+      ByteData? png;
+      await tester.runAsync(() async {
+        final image = await boundary.toImage(pixelRatio: 2);
+        png = await image.toByteData(format: ui.ImageByteFormat.png);
+        image.dispose();
+      });
+      File('$_outputDir/$nombre.png').writeAsBytesSync(png!.buffer.asUint8List());
+      debugPrint('Guardado $_outputDir/$nombre.png');
     }
   });
 

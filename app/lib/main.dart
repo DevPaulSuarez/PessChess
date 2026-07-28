@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
+import 'models/game_state.dart';
 import 'screens/game_screen.dart';
 import 'screens/home_screen.dart';
+import 'screens/launcher_screen.dart';
 import 'services/game_client.dart';
 
 void main() {
@@ -17,6 +19,10 @@ class PessChessApp extends StatefulWidget {
 
 class _PessChessAppState extends State<PessChessApp> {
   final _client = GameClient();
+
+  /// El juego elegido en la pantalla de inicio. Null significa que aún no se
+  /// ha elegido y toca enseñar la lista.
+  GameKind? _chosen;
 
   @override
   void initState() {
@@ -60,13 +66,29 @@ class _PessChessAppState extends State<PessChessApp> {
           filled: true,
         ),
       ),
-      // Una pantalla u otra según haya partida en curso: para dos pantallas no
-      // merece la pena montar navegación con rutas.
+      // Tres pantallas encadenadas: elegir juego, preparar la partida y jugar.
+      // Con tan pocas no merece la pena montar navegación con rutas.
       home: ListenableBuilder(
         listenable: _client,
-        builder: (context, _) => _client.hasGame
-            ? GameScreen(client: _client)
-            : HomeScreen(client: _client),
+        builder: (context, _) {
+          // Una partida en curso manda sobre todo lo demás: si se recupera una
+          // al arrancar, hay que ir directo al tablero.
+          if (_client.hasGame) return GameScreen(client: _client);
+
+          final chosen = _chosen;
+          if (chosen == null) {
+            return LauncherScreen(
+              client: _client,
+              onPick: (game) => setState(() => _chosen = game),
+            );
+          }
+
+          return HomeScreen(
+            client: _client,
+            game: chosen,
+            onBack: () => setState(() => _chosen = null),
+          );
+        },
       ),
     );
   }

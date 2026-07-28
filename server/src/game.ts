@@ -1,5 +1,7 @@
-import { Chess } from 'chess.js';
 import { randomUUID } from 'node:crypto';
+
+import { createEngine, type GameKind } from './rules/registry.js';
+import type { RuleEngine } from './rules/engine.js';
 import type {
   Color,
   EndReason,
@@ -18,15 +20,20 @@ export interface Player {
 }
 
 /**
- * Una partida. Contiene el tablero, los dos jugadores y los relojes.
+ * Una partida: dos jugadores, dos relojes y un juego.
+ *
+ * No sabe las reglas de nada. Todo lo que dependa del juego concreto se lo
+ * pregunta al motor de reglas, así que esta clase vale igual para ajedrez,
+ * damas o lo que se añada después.
  *
  * El reloj se lleva "en diferido": no se descuenta continuamente, sino que se
- * calcula el tiempo consumido cada vez que hace falta (al mover o al comprobar
- * si alguien se ha quedado sin tiempo). Así no hay temporizadores por partida.
+ * calcula el tiempo consumido cada vez que hace falta. Así no hay
+ * temporizadores por partida.
  */
 export class Game {
   readonly id: string;
-  readonly chess = new Chess();
+  readonly kind: GameKind;
+  readonly rules: RuleEngine;
   readonly timeControl: TimeControl | null;
   readonly createdAt = Date.now();
 
@@ -41,9 +48,13 @@ export class Game {
   private clocks: { w: number; b: number };
   /** Momento en que empezó a correr el reloj del jugador de turno. */
   private turnStartedAt: number | null = null;
+  /** La última jugada, para resaltarla en el tablero. */
+  private lastMove: { from: string; to: string; san: string } | null = null;
 
-  constructor(id: string, timeControl: TimeControl | null) {
+  constructor(id: string, kind: GameKind, timeControl: TimeControl | null) {
     this.id = id;
+    this.kind = kind;
+    this.rules = createEngine(kind);
     this.timeControl = timeControl;
     this.clocks = {
       w: timeControl?.initialMs ?? 0,
@@ -109,7 +120,7 @@ export class Game {
     if (this.status !== 'active' || this.turnStartedAt === null) {
       return { ...this.clocks };
     }
-    const turn = this.chess.turn();
+    const turn = this.rules.turn();
     const elapsed = Date.now() - this.turnStartedAt;
     return {
       ...this.clocks,
@@ -124,29 +135,17 @@ export class Game {
   checkFlag(): boolean {
     if (this.status !== 'active' || !this.timeControl) return false;
     const clocks = this.currentClocks()!;
-    const turn = this.chess.turn();
+    const turn = this.rules.turn();
     if (clocks[turn] > 0) return false;
 
     this.clocks = clocks;
-    // Si al rival no le queda material para dar mate, es tablas y no derrota.
-    const winnerHasMaterial = this.sideHasMatingMaterial(turn === 'w' ? 'b' : 'w');
+    // Si al rival no le queda con qué ganar, es tablas y no derrota.
+    const winner = turn === 'w' ? 'b' : 'w';
     this.finish(
-      !winnerHasMaterial ? '1/2-1/2' : turn === 'w' ? '0-1' : '1-0',
+      !this.rules.canStillWin(winner) ? '1/2-1/2' : turn === 'w' ? '0-1' : '1-0',
       'timeout',
     );
     return true;
-  }
-
-  /** ¿Le queda a este color material suficiente para dar mate? */
-  private sideHasMatingMaterial(color: Color): boolean {
-    const board = this.chess.board().flat();
-    let minors = 0;
-    for (const square of board) {
-      if (!square || square.color !== color) continue;
-      if (square.type === 'p' || square.type === 'q' || square.type === 'r') return true;
-      if (square.type === 'b' || square.type === 'n') minors++;
-    }
-    return minors >= 2;
   }
 
   // -------------------------------------------------------------------------
@@ -159,45 +158,30 @@ export class Game {
    */
   move(color: Color, from: string, to: string, promotion?: string): string | null {
     if (this.status !== 'active') return 'La partida no está en juego.';
-    if (this.chess.turn() !== color) return 'No es tu turno.';
+    if (this.rules.turn() !== color) return 'No es tu turno.';
     if (this.checkFlag()) return 'Se acabó el tiempo.';
 
-    let made;
-    try {
-      made = this.chess.move({ from, to, promotion: promotion ?? 'q' });
-    } catch {
-      return 'Jugada ilegal.';
-    }
+    const made = this.rules.move(from, to, promotion);
     if (!made) return 'Jugada ilegal.';
+    this.lastMove = { from: made.from, to: made.to, san: made.san };
 
-    // Descontar lo consumido y sumar el incremento.
+    // Descontar lo consumido y sumar el incremento. Si al comer hay que seguir
+    // jugando con la misma ficha, el turno no ha cambiado y el reloj de quien
+    // mueve sigue corriendo, que es lo justo.
     if (this.timeControl && this.turnStartedAt !== null) {
       const elapsed = Date.now() - this.turnStartedAt;
-      this.clocks[color] = Math.max(0, this.clocks[color] - elapsed) + this.timeControl.incrementMs;
+      const stillSamePlayer = this.rules.turn() === color;
+      this.clocks[color] = Math.max(0, this.clocks[color] - elapsed);
+      if (!stillSamePlayer) this.clocks[color] += this.timeControl.incrementMs;
       this.turnStartedAt = Date.now();
     }
 
     // Una jugada cancela cualquier oferta de tablas pendiente.
     this.drawOfferFrom = null;
-    this.checkGameOver();
+
+    const outcome = this.rules.outcome();
+    if (outcome) this.finish(outcome.result, outcome.reason);
     return null;
-  }
-
-  private checkGameOver(): void {
-    if (!this.chess.isGameOver()) return;
-
-    if (this.chess.isCheckmate()) {
-      // El que acaba de recibir el mate es el que tiene el turno.
-      this.finish(this.chess.turn() === 'w' ? '0-1' : '1-0', 'checkmate');
-    } else if (this.chess.isStalemate()) {
-      this.finish('1/2-1/2', 'stalemate');
-    } else if (this.chess.isInsufficientMaterial()) {
-      this.finish('1/2-1/2', 'insufficient_material');
-    } else if (this.chess.isThreefoldRepetition()) {
-      this.finish('1/2-1/2', 'threefold_repetition');
-    } else {
-      this.finish('1/2-1/2', 'fifty_move_rule');
-    }
   }
 
   resign(color: Color): void {
@@ -239,11 +223,11 @@ export class Game {
 
   /** Construye el estado tal y como lo debe ver el jugador de este color. */
   stateFor(color: Color): GameState {
-    const turn = this.chess.turn();
+    const turn = this.rules.turn();
     const isYourTurn = this.status === 'active' && turn === color;
 
     const legalMoves: LegalMove[] = isYourTurn
-      ? this.chess.moves({ verbose: true }).map((m) => ({
+      ? this.rules.legalMoves().map((m) => ({
           from: m.from,
           to: m.to,
           ...(m.promotion ? { promotion: m.promotion } : {}),
@@ -251,22 +235,22 @@ export class Game {
         }))
       : [];
 
-    const history = this.chess.history({ verbose: true });
-    const last = history[history.length - 1];
+    const history = this.rules.history();
 
     return {
       gameId: this.id,
+      game: this.kind,
       status: this.status,
-      fen: this.chess.fen(),
+      fen: this.rules.fen(),
       turn,
       yourColor: color,
       white: { name: this.white?.name ?? '', connected: this.white?.socketId != null },
       black: { name: this.black?.name ?? '', connected: this.black?.socketId != null },
       timeControl: this.timeControl,
       clocks: this.currentClocks(),
-      lastMove: last ? { from: last.from, to: last.to, san: last.san } : null,
-      history: history.map((m) => m.san),
-      inCheck: this.chess.inCheck(),
+      lastMove: this.lastMove,
+      history,
+      inCheck: this.rules.inCheck(),
       legalMoves,
       drawOfferFrom: this.drawOfferFrom,
       result: this.result,

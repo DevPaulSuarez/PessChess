@@ -4,6 +4,7 @@ import { createServer } from 'node:http';
 import { Server, type Socket } from 'socket.io';
 
 import { GameManager } from './rooms.js';
+import { GAMES, isGameKind, type GameKind } from './rules/registry.js';
 import type { Game } from './game.js';
 import type {
   CreateRoomPayload,
@@ -34,7 +35,8 @@ const manager = new GameManager();
 const socketGame = new Map<string, string>();
 
 app.get('/health', (_req, res) => {
-  res.json({ ok: true, ...manager.stats });
+  // `games` es cuántas partidas hay abiertas; `offers`, a qué se puede jugar.
+  res.json({ ok: true, ...manager.stats, offers: Object.keys(GAMES) });
 });
 
 // ---------------------------------------------------------------------------
@@ -65,6 +67,11 @@ const MIN_INITIAL_MS = 30_000; // 30 segundos
 const MAX_INITIAL_MS = 3 * 60 * 60 * 1000; // 3 horas
 const MAX_INCREMENT_MS = 60_000; // 1 minuto
 
+/** Si piden un juego que no existe, se juega al ajedrez. */
+function cleanGame(raw: unknown): GameKind {
+  return isGameKind(raw) ? raw : 'chess';
+}
+
 function cleanTimeControl(raw: unknown): TimeControl | null {
   if (raw === null || typeof raw !== 'object') return null;
   const tc = raw as Partial<TimeControl>;
@@ -94,7 +101,10 @@ function attach(socket: Socket, game: Game): void {
 io.on('connection', (socket) => {
   socket.on('create_room', (payload: CreateRoomPayload) => {
     manager.leaveQueue(socket.id);
-    const game = manager.create(cleanTimeControl(payload?.timeControl));
+    const game = manager.create(
+      cleanGame(payload?.game),
+      cleanTimeControl(payload?.timeControl),
+    );
     const seat = game.addPlayer(cleanName(payload?.name), socket.id);
     if (!seat) return fail(socket, 'room_full', 'No se pudo crear la sala.');
 
@@ -123,8 +133,9 @@ io.on('connection', (socket) => {
 
   socket.on('quick_match', (payload: QuickMatchPayload) => {
     const name = cleanName(payload?.name);
+    const kind = cleanGame(payload?.game);
     const timeControl = cleanTimeControl(payload?.timeControl);
-    const game = manager.enqueue({ socketId: socket.id, name, timeControl });
+    const game = manager.enqueue({ socketId: socket.id, name, game: kind, timeControl });
 
     if (!game) {
       socket.emit('queued');

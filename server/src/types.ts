@@ -6,21 +6,30 @@
  * servidor le manda y pide mover.
  */
 
+import type { GameKind } from './rules/registry.js';
+
+export type { GameKind };
+
 export type Color = 'w' | 'b';
 
 export type GameStatus = 'waiting' | 'active' | 'finished';
 
 /** Motivo por el que terminó la partida. */
 export type EndReason =
+  // Comunes a varios juegos.
+  | 'timeout'
+  | 'resignation'
+  | 'draw_agreed'
+  | 'abandoned'
+  // Ajedrez.
   | 'checkmate'
   | 'stalemate'
   | 'insufficient_material'
   | 'threefold_repetition'
   | 'fifty_move_rule'
-  | 'timeout'
-  | 'resignation'
-  | 'draw_agreed'
-  | 'abandoned';
+  // Damas.
+  | 'blocked'
+  | 'no_progress';
 
 /** '1-0' blancas ganan, '0-1' negras ganan, '1/2-1/2' tablas. */
 export type Result = '1-0' | '0-1' | '1/2-1/2';
@@ -49,6 +58,8 @@ export interface PlayerView {
 /** Instantánea completa de la partida. Se manda entera en cada cambio. */
 export interface GameState {
   gameId: string;
+  /** A qué se está jugando: 'chess', 'draughts'… */
+  game: GameKind;
   status: GameStatus;
   fen: string;
   turn: Color;
@@ -77,6 +88,7 @@ export interface GameState {
 
 export interface CreateRoomPayload {
   name: string;
+  game: GameKind;
   timeControl: TimeControl | null;
 }
 
@@ -87,6 +99,7 @@ export interface JoinRoomPayload {
 
 export interface QuickMatchPayload {
   name: string;
+  game: GameKind;
   timeControl: TimeControl | null;
 }
 

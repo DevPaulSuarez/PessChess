@@ -185,10 +185,11 @@ class GameClient extends ChangeNotifier {
     notifyListeners();
   }
 
-  void createRoom(TimeControl? timeControl) {
+  void createRoom(GameKind game, TimeControl? timeControl) {
     _resetGame();
     _socket?.emit('create_room', {
       'name': _playerName,
+      'game': game.code,
       'timeControl': timeControl?.toJson(),
     });
   }
@@ -201,10 +202,11 @@ class GameClient extends ChangeNotifier {
     });
   }
 
-  void quickMatch(TimeControl? timeControl) {
+  void quickMatch(GameKind game, TimeControl? timeControl) {
     _resetGame();
     _socket?.emit('quick_match', {
       'name': _playerName,
+      'game': game.code,
       'timeControl': timeControl?.toJson(),
     });
   }

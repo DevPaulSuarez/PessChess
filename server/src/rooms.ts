@@ -1,5 +1,6 @@
 import { Game } from './game.js';
 import type { TimeControl } from './types.js';
+import type { GameKind } from './rules/registry.js';
 
 /** Sin I, O, 0 ni 1: en pantalla se confunden y el código se dicta en voz alta. */
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -13,6 +14,7 @@ const ABANDONED_TTL_MS = 30 * 60 * 1000;
 interface QueueEntry {
   socketId: string;
   name: string;
+  game: GameKind;
   timeControl: TimeControl | null;
 }
 
@@ -21,8 +23,8 @@ export class GameManager {
   /** Cola de emparejamiento rápido, agrupada por ritmo de juego. */
   private queue: QueueEntry[] = [];
 
-  create(timeControl: TimeControl | null): Game {
-    const game = new Game(this.freshCode(), timeControl);
+  create(kind: GameKind, timeControl: TimeControl | null): Game {
+    const game = new Game(this.freshCode(), kind, timeControl);
     this.games.set(game.id, game);
     return game;
   }
@@ -36,9 +38,10 @@ export class GameManager {
    * devuelve su partida; si no, crea una y deja al jugador en espera.
    */
   enqueue(entry: QueueEntry): Game | null {
-    const key = timeControlKey(entry.timeControl);
+    // Solo se emparejan quienes piden el mismo juego y el mismo ritmo.
+    const key = queueKey(entry);
     const index = this.queue.findIndex(
-      (q) => timeControlKey(q.timeControl) === key && q.socketId !== entry.socketId,
+      (q) => queueKey(q) === key && q.socketId !== entry.socketId,
     );
 
     if (index === -1) {
@@ -49,7 +52,7 @@ export class GameManager {
     }
 
     const [opponent] = this.queue.splice(index, 1);
-    const game = this.create(entry.timeControl);
+    const game = this.create(entry.game, entry.timeControl);
     game.addPlayer(opponent.name, opponent.socketId);
     return game;
   }
@@ -100,7 +103,8 @@ export class GameManager {
   }
 }
 
-/** Dos jugadores solo se emparejan si piden exactamente el mismo ritmo. */
-function timeControlKey(tc: TimeControl | null): string {
-  return tc ? `${tc.initialMs}+${tc.incrementMs}` : 'unlimited';
+/** Dos jugadores solo se emparejan si piden el mismo juego y el mismo ritmo. */
+function queueKey(entry: QueueEntry): string {
+  const tc = entry.timeControl;
+  return `${entry.game}:${tc ? `${tc.initialMs}+${tc.incrementMs}` : 'unlimited'}`;
 }
