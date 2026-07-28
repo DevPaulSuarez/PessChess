@@ -73,19 +73,23 @@ console.log('\nEl peón solo avanza:');
   check('rechaza mover una ficha del rival', d.move('b6', 'a5') === null);
 }
 
-console.log('\nComer es obligatorio:');
+console.log('\nComer no es obligatorio:');
 {
   const d = new DraughtsRules();
   play(d, [['c3', 'd4'], ['b6', 'c5']]); // las negras se ponen a tiro
 
-  const moves = d.legalMoves();
-  check('solo se ofrece comer', moves.length === 1, `${moves.length} jugadas`);
-  check('y es el salto correcto', moves[0].san === 'd4xb6', moves[0].san);
-  check('no deja hacer otra cosa', d.move('a3', 'b4') === null);
+  const capturas = d.legalMoves().filter((m) => m.san.includes('x'));
+  check('se ofrece la captura', capturas.length === 1, capturas.map((m) => m.san).join());
+  check('y también el resto de jugadas', d.legalMoves().length > 1, `${d.legalMoves().length}`);
+  check('deja mover otra ficha en vez de comer', d.move('a3', 'b4') !== null);
+}
 
+{
+  const d = new DraughtsRules();
+  play(d, [['c3', 'd4'], ['b6', 'c5']]);
   play(d, [['d4', 'b6']]);
-  check('la ficha saltada desaparece', !board(d).includes('p1p1p1p1/1p1p1p1p'), board(d));
-  check('la ficha llega a su destino', d.fen().split(' ')[0].split('/')[2] === '1P1p1p1p', d.fen().split(' ')[0].split('/')[2]);
+  check('pero comer funciona', d.fen().split(' ')[0].split('/')[2] === '1P1p1p1p',
+    d.fen().split(' ')[0].split('/')[2]);
   check('el turno pasa al rival', d.turn() === 'b', d.turn());
 }
 
@@ -95,7 +99,8 @@ console.log('\nSaltos encadenados:');
   // e5 vuelve a saltar a c7 comiendo d6.
   const d = DraughtsRules.fromPosition({ c3: 'P', d4: 'p', d6: 'p' });
 
-  check('solo hay una forma de empezar', d.legalMoves().length === 1,
+  check('la captura está entre las opciones',
+    d.legalMoves().some((m) => m.san === 'c3xe5'),
     d.legalMoves().map((m) => m.san).join());
 
   d.move('c3', 'e5');
@@ -141,14 +146,39 @@ console.log('\nCoronar termina el turno aunque se pudiera seguir comiendo:');
   check('la ficha de e7 sigue viva', board(d).split('/')[1].includes('p'), board(d).split('/')[1]);
 }
 
-console.log('\nLa dama se mueve en las cuatro diagonales:');
+console.log('\nLa dama vuela por la diagonal:');
 {
   const d = DraughtsRules.fromPosition({ d4: 'K', h8: 'p' });
   const destinos = destinationsFrom(d, 'd4');
-  check('llega a las cuatro casillas vecinas',
-    destinos.join() === 'c3,c5,e3,e5', destinos.join());
-  check('pero solo una casilla, no la diagonal entera',
-    !destinos.includes('f6') && !destinos.includes('b2'), destinos.join());
+  check('recorre la diagonal entera',
+    destinos.includes('a1') && destinos.includes('g7') && destinos.includes('a7'),
+    destinos.join());
+  check('no salta por encima de nadie', !destinos.includes('h8'), destinos.join());
+}
+
+{
+  // Dama blanca en a1 con una negra lejos en e5: puede comerla y caer detrás.
+  const d = DraughtsRules.fromPosition({ a1: 'K', e5: 'p' });
+  const capturas = d.legalMoves().filter((m) => m.san.includes('x'));
+  check('come a distancia', capturas.length > 0, `${capturas.length}`);
+  check('y elige dónde cae detrás',
+    capturas.map((m) => m.to).sort().join() === 'f6,g7,h8',
+    capturas.map((m) => m.to).join());
+
+  d.move('a1', 'g7');
+  check('la ficha lejana desaparece', !d.fen().includes('p'), d.fen().split(' ')[0]);
+  check('la dama acaba donde eligió',
+    d.fen().split(' ')[0].split('/')[1] === '6K1', d.fen().split(' ')[0].split('/')[1]);
+}
+
+{
+  // Una ficha propia en medio tapa la diagonal.
+  const d = DraughtsRules.fromPosition({ a1: 'K', c3: 'P', e5: 'p' });
+  const destinos = destinationsFrom(d, 'a1');
+  check('llega hasta justo antes de la ficha propia',
+    destinos.join() === 'b2', destinos.join());
+  check('y no la salta ni come lo que hay detrás',
+    !destinos.includes('d4') && !destinos.includes('f6'), destinos.join());
 }
 
 console.log('\nGanar y empatar:');

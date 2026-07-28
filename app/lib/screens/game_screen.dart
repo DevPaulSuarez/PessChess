@@ -177,8 +177,6 @@ class _GameScreenState extends State<GameScreen> {
                   state: state,
                   connection: _client.connection,
                   onLeave: _confirmLeave,
-                  is3d: _client.board3d,
-                  onToggle3d: _client.toggleBoard3d,
                 ),
 
                 Expanded(
@@ -205,7 +203,6 @@ class _GameScreenState extends State<GameScreen> {
                             Flexible(
                               child: ChessBoard(
                                 state: state,
-                                perspective: _client.board3d,
                                 onMove: (from, to, promotion) => _client.move(
                                     from, to,
                                     promotion: promotion),
@@ -262,15 +259,11 @@ class _TopBar extends StatelessWidget {
     required this.state,
     required this.connection,
     required this.onLeave,
-    required this.is3d,
-    required this.onToggle3d,
   });
 
   final GameState state;
   final ConnectionStatus connection;
   final VoidCallback onLeave;
-  final bool is3d;
-  final VoidCallback onToggle3d;
 
   @override
   Widget build(BuildContext context) {
@@ -324,12 +317,6 @@ class _TopBar extends StatelessWidget {
                 ],
               ),
             ),
-          IconButton(
-            tooltip: is3d ? 'Ver el tablero desde arriba' : 'Ver en 3D',
-            onPressed: onToggle3d,
-            isSelected: is3d,
-            icon: Icon(is3d ? Icons.grid_on : Icons.view_in_ar_outlined),
-          ),
         ],
       ),
     );

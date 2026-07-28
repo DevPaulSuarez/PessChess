@@ -1,0 +1,314 @@
+
+import 'package:flutter/foundation.dart';
+import 'package:socket_io_client/socket_io_client.dart' as io;
+
+/// Un tanque tal y como lo manda el servidor.
+class TankView {
+  const TankView({
+    required this.id,
+    required this.color,
+    required this.name,
+    required this.x,
+    required this.y,
+    required this.dir,
+    required this.hp,
+    required this.maxHp,
+    required this.attack,
+    required this.defense,
+    required this.alive,
+    required this.kills,
+    required this.upgrades,
+  });
+
+  final String id;
+  final int color;
+
+  /// Null en los tanques de la máquina.
+  final String? name;
+
+  final double x;
+  final double y;
+  final String dir;
+  final int hp;
+  final int maxHp;
+  final int attack;
+  final int defense;
+  final bool alive;
+  final int kills;
+
+  /// Mejoras ganadas y sin gastar.
+  final int upgrades;
+
+  bool get isCpu => name == null;
+
+  factory TankView.fromJson(Map<String, dynamic> json) => TankView(
+        id: json['id'] as String,
+        color: _parseColor(json['color'] as String),
+        name: json['name'] as String?,
+        x: (json['x'] as num).toDouble(),
+        y: (json['y'] as num).toDouble(),
+        dir: json['dir'] as String,
+        hp: json['hp'] as int,
+        maxHp: json['maxHp'] as int,
+        attack: json['attack'] as int,
+        defense: json['defense'] as int,
+        alive: json['alive'] as bool,
+        kills: json['kills'] as int,
+        upgrades: json['upgrades'] as int,
+      );
+}
+
+class BulletView {
+  const BulletView(this.x, this.y);
+  final double x;
+  final double y;
+}
+
+/// Un jugador sentado en la sala, antes de empezar.
+class LobbyPlayer {
+  const LobbyPlayer({
+    required this.name,
+    required this.color,
+    required this.connected,
+    required this.isHost,
+  });
+
+  final String name;
+  final String? color;
+  final bool connected;
+  final bool isHost;
+
+  factory LobbyPlayer.fromJson(Map<String, dynamic> json) => LobbyPlayer(
+        name: json['name'] as String,
+        color: json['color'] as String?,
+        connected: json['connected'] as bool,
+        isHost: json['isHost'] as bool,
+      );
+}
+
+class TankColorOption {
+  const TankColorOption(this.id, this.value);
+  final String id;
+  final int value;
+}
+
+/// La sala de tanques mientras se espera a que empiece.
+class TankLobby {
+  const TankLobby({
+    required this.code,
+    required this.tankCount,
+    required this.minTanks,
+    required this.maxTanks,
+    required this.colors,
+    required this.taken,
+    required this.canStart,
+    required this.players,
+    required this.youAreHost,
+    required this.yourColor,
+  });
+
+  final String code;
+  final int tankCount;
+  final int minTanks;
+  final int maxTanks;
+  final List<TankColorOption> colors;
+
+  /// Colores que ya ha cogido alguien: no se pueden volver a elegir.
+  final List<String> taken;
+
+  final bool canStart;
+  final List<LobbyPlayer> players;
+  final bool youAreHost;
+  final String? yourColor;
+
+  /// Cuántos tanques llevará la máquina con los jugadores que hay ahora.
+  int get cpuTanks => (tankCount - players.length).clamp(0, tankCount);
+
+  factory TankLobby.fromJson(Map<String, dynamic> json) => TankLobby(
+        code: json['code'] as String,
+        tankCount: json['tankCount'] as int,
+        minTanks: json['minTanks'] as int,
+        maxTanks: json['maxTanks'] as int,
+        colors: (json['colors'] as List)
+            .map((c) => TankColorOption(
+                  (c as Map)['id'] as String,
+                  _parseColor(c['hex'] as String),
+                ))
+            .toList(),
+        taken: (json['taken'] as List).cast<String>(),
+        canStart: json['canStart'] as bool,
+        players: (json['players'] as List)
+            .map((p) => LobbyPlayer.fromJson((p as Map).cast<String, dynamic>()))
+            .toList(),
+        youAreHost: json['youAreHost'] as bool,
+        yourColor: json['yourColor'] as String?,
+      );
+}
+
+/// El mundo en un instante.
+class TankWorld {
+  const TankWorld({
+    required this.status,
+    required this.size,
+    required this.tankSize,
+    required this.yourTankId,
+    required this.tanks,
+    required this.bullets,
+    required this.walls,
+    required this.winner,
+  });
+
+  final String status;
+  final int size;
+  final double tankSize;
+  final String? yourTankId;
+  final List<TankView> tanks;
+  final List<BulletView> bullets;
+
+  /// El campo, celda a celda: 0 vacío, 1 ladrillo, 2 acero.
+  final List<int> walls;
+
+  final ({String name, int color})? winner;
+
+  bool get finished => status == 'finished';
+
+  TankView? get yourTank {
+    for (final tank in tanks) {
+      if (tank.id == yourTankId) return tank;
+    }
+    return null;
+  }
+}
+
+/// Habla con el servidor durante una partida de tanques.
+///
+/// Va aparte del cliente de ajedrez porque el trato es distinto: aquí no se
+/// mandan jugadas y se espera, sino que se avisa de lo que se tiene pulsado y
+/// el servidor manda el mundo veinte veces por segundo.
+class TankClient extends ChangeNotifier {
+  /// El socket cambia cada vez que la app se reconecta, así que no se guarda
+  /// para siempre: se vuelve a enganchar en cada conexión.
+  io.Socket? _socket;
+
+  TankLobby? _lobby;
+  TankWorld? _world;
+  String? _code;
+  String? _error;
+
+  /// Lo último que se mandó, para no repetir mensajes idénticos.
+  String? _lastSentInput;
+
+  /// El campo llega solo cuando cambia, así que hay que recordarlo.
+  List<int> _walls = const [];
+
+  TankLobby? get lobby => _lobby;
+  TankWorld? get world => _world;
+  String? get code => _code;
+  String? get error => _error;
+  bool get inMatch => _lobby != null || _world != null;
+
+  void rebind(io.Socket socket) {
+    _socket = socket;
+    socket.on('tank_joined', (data) {
+      _code = (data as Map)['code'] as String;
+      notifyListeners();
+    });
+
+    socket.on('tank_lobby', (data) {
+      _lobby = TankLobby.fromJson((data as Map).cast<String, dynamic>());
+      _error = null;
+      notifyListeners();
+    });
+
+    socket.on('tank_state', (data) {
+      final json = (data as Map).cast<String, dynamic>();
+      final walls = json['walls'] as String?;
+      if (walls != null) {
+        _walls = walls.split('').map(int.parse).toList(growable: false);
+      }
+
+      _world = TankWorld(
+        status: json['status'] as String,
+        size: json['size'] as int,
+        tankSize: (json['tankSize'] as num).toDouble(),
+        yourTankId: json['yourTankId'] as String?,
+        tanks: (json['tanks'] as List)
+            .map((t) => TankView.fromJson((t as Map).cast<String, dynamic>()))
+            .toList(),
+        bullets: (json['bullets'] as List)
+            .map((b) => BulletView(
+                  ((b as Map)['x'] as num).toDouble(),
+                  (b['y'] as num).toDouble(),
+                ))
+            .toList(),
+        walls: _walls,
+        winner: json['winner'] == null
+            ? null
+            : (
+                name: (json['winner'] as Map)['name'] as String,
+                color: _parseColor((json['winner'] as Map)['color'] as String),
+              ),
+      );
+      // La sala ya no pinta nada una vez empezada la partida.
+      if (_world!.status != 'lobby') _lobby = null;
+      notifyListeners();
+    });
+  }
+
+  // -------------------------------------------------------------------------
+
+  void create(String name, int tankCount) {
+    _reset();
+    _socket?.emit('tank_create', {'name': name, 'tankCount': tankCount});
+  }
+
+  void join(String code, String name) {
+    _reset();
+    _socket?.emit('tank_join', {'code': code.trim().toUpperCase(), 'name': name});
+  }
+
+  void pickColor(String colorId) =>
+      _socket?.emit('tank_pick_color', {'color': colorId});
+
+  void setTankCount(int count) =>
+      _socket?.emit('tank_set_count', {'tankCount': count});
+
+  void start() => _socket?.emit('tank_start');
+
+  /// Avisa de lo que el jugador tiene pulsado.
+  ///
+  /// Solo se manda cuando cambia: repetir lo mismo veinte veces por segundo
+  /// llenaría la red sin aportar nada.
+  void sendInput({String? dir, required bool firing}) {
+    final packed = '${dir ?? '-'}:$firing';
+    if (packed == _lastSentInput) return;
+    _lastSentInput = packed;
+    _socket?.emit('tank_input', {'dir': dir, 'firing': firing});
+  }
+
+  void chooseUpgrade(String upgrade) =>
+      _socket?.emit('tank_upgrade', {'upgrade': upgrade});
+
+  void leave() {
+    _socket?.emit('tank_leave');
+    _reset();
+    notifyListeners();
+  }
+
+  void showError(String message) {
+    _error = message;
+    notifyListeners();
+  }
+
+  void _reset() {
+    _lobby = null;
+    _world = null;
+    _code = null;
+    _error = null;
+    _walls = const [];
+    _lastSentInput = null;
+  }
+}
+
+int _parseColor(String hex) =>
+    int.parse('FF${hex.replaceFirst('#', '')}', radix: 16);

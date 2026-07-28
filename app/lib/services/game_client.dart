@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 
 import '../models/game_state.dart';
+import 'tank_client.dart';
 
 enum ConnectionStatus { offline, connecting, online }
 
@@ -19,7 +20,6 @@ class GameClient extends ChangeNotifier {
   static const _prefPlayerName = 'player_name';
   static const _prefGameId = 'game_id';
   static const _prefGameToken = 'game_token';
-  static const _prefBoard3d = 'board_3d';
 
   /// Servidor al que se conecta la app si el jugador no ha puesto otro.
   ///
@@ -48,6 +48,11 @@ class GameClient extends ChangeNotifier {
 
   io.Socket? _socket;
   SharedPreferences? _prefs;
+
+  /// Las partidas de tanques hablan por el mismo socket pero con su propio
+  /// protocolo, así que tienen su propio cliente.
+  final tanks = TankClient();
+
   Timer? _ticker;
 
   ConnectionStatus _connection = ConnectionStatus.offline;
@@ -56,7 +61,6 @@ class GameClient extends ChangeNotifier {
   GameState? _state;
   JoinInfo? _joinInfo;
   bool _inQueue = false;
-  bool _board3d = false;
   String? _lastError;
 
   /// Momento en que llegó el último estado, para interpolar el reloj.
@@ -68,9 +72,6 @@ class GameClient extends ChangeNotifier {
   GameState? get state => _state;
   JoinInfo? get joinInfo => _joinInfo;
   bool get inQueue => _inQueue;
-
-  /// Si el tablero se dibuja en perspectiva en vez de visto desde arriba.
-  bool get board3d => _board3d;
 
   String? get lastError => _lastError;
   bool get hasGame => _state != null;
@@ -86,7 +87,6 @@ class GameClient extends ChangeNotifier {
     _prefs = await SharedPreferences.getInstance();
     _serverUrl = _prefs!.getString(_key(_prefServerUrl)) ?? defaultServerUrl;
     _playerName = _prefs!.getString(_key(_prefPlayerName)) ?? '';
-    _board3d = _prefs!.getBool(_key(_prefBoard3d)) ?? false;
     notifyListeners();
     connect();
   }
@@ -107,6 +107,7 @@ class GameClient extends ChangeNotifier {
           .build(),
     );
     _socket = socket;
+    tanks.rebind(socket);
 
     socket.onConnect((_) {
       _connection = ConnectionStatus.online;
@@ -212,12 +213,6 @@ class GameClient extends ChangeNotifier {
   }
 
   void cancelQueue() => _socket?.emit('cancel_queue');
-
-  Future<void> toggleBoard3d() async {
-    _board3d = !_board3d;
-    await _prefs?.setBool(_key(_prefBoard3d), _board3d);
-    notifyListeners();
-  }
 
   void move(String from, String to, {String? promotion}) {
     _socket?.emit('move', {

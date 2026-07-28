@@ -4,6 +4,7 @@ import 'models/game_state.dart';
 import 'screens/game_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/launcher_screen.dart';
+import 'screens/tank_screen.dart';
 import 'services/game_client.dart';
 
 void main() {
@@ -80,6 +81,15 @@ class _PessChessAppState extends State<PessChessApp> {
             return LauncherScreen(
               client: _client,
               onPick: (game) => setState(() => _chosen = game),
+            );
+          }
+
+          // Los tanques tienen su propio camino: no son por turnos ni de dos
+          // jugadores, así que no pasan por la pantalla de las salas normales.
+          if (chosen == GameKind.tanks) {
+            return TankScreen(
+              client: _client,
+              onBack: () => setState(() => _chosen = null),
             );
           }
 

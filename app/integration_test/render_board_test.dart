@@ -53,10 +53,10 @@ GameState _state(String fen,
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets('guarda una imagen de cada modo', (tester) async {
+  testWidgets('guarda una imagen del tablero', (tester) async {
     const start = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 
-    for (final perspective in [false, true]) {
+    {
       final key = GlobalKey();
 
       await tester.pumpWidget(MaterialApp(
@@ -73,7 +73,6 @@ void main() {
                   state: _state(start, legalMoves: [
                     {'from': 'e2', 'to': 'e4', 'san': 'e4'},
                   ]),
-                  perspective: perspective,
                   onMove: (_, _, _) {},
                   askPromotion: () async => null,
                 ),
@@ -94,9 +93,8 @@ void main() {
         image.dispose();
       });
 
-      final name = perspective ? 'tablero_3d.png' : 'tablero_2d.png';
-      File('$_outputDir/$name').writeAsBytesSync(png!.buffer.asUint8List());
-      debugPrint('Guardado $_outputDir/$name');
+      File('$_outputDir/tablero.png').writeAsBytesSync(png!.buffer.asUint8List());
+      debugPrint('Guardado $_outputDir/tablero.png');
     }
   });
 

@@ -2,17 +2,19 @@ import type { Color, EndReason, Result } from '../types.js';
 import type { EngineMove, RuleEngine } from './engine.js';
 
 /**
- * Damas inglesas (o americanas), que son las que se juegan en Perú.
+ * Damas, con las reglas que juega la familia del usuario: base inglesa pero
+ * con la dama voladora y sin obligación de comer.
  *
  * Reglas:
  *  - Tablero de 8x8, doce fichas por bando, solo sobre las casillas negras.
  *  - El peón avanza y come **solo hacia adelante**, en diagonal.
- *  - Al llegar a la última fila se corona y pasa a ser dama, que se mueve y
- *    come una casilla en las cuatro diagonales.
- *  - Comer es **obligatorio**. Si hay varias formas de comer se puede elegir
- *    cualquiera; no hay que comer la mayor cantidad posible (eso es de las
- *    damas españolas).
- *  - Si tras comer se puede volver a comer con la misma ficha, hay que seguir.
+ *  - Al llegar a la última fila se corona y pasa a ser dama, que recorre la
+ *    diagonal entera en las cuatro direcciones, como el alfil del ajedrez, y
+ *    puede comer una ficha lejana cayendo detrás de ella.
+ *  - Comer **no es obligatorio**: se ofrecen las capturas junto al resto de
+ *    jugadas y decide el jugador, aunque se le escape una.
+ *  - Pero una vez empezada una cadena de capturas hay que terminarla: si tras
+ *    comer se puede volver a comer con la misma ficha, se sigue.
  *  - Coronar termina el turno, aunque se pudiera seguir comiendo.
  *  - Pierde quien se queda sin fichas o sin ninguna jugada posible.
  */
@@ -142,8 +144,9 @@ export class DraughtsRules implements RuleEngine {
       quiet.push(...this.quietMovesFrom(square));
     }
 
-    // Comer es obligatorio: si se puede, no hay más opciones.
-    return captures.length > 0 ? captures : quiet;
+    // Comer NO es obligatorio: se ofrecen las dos cosas y decide el jugador,
+    // aunque eso signifique que se le pase una captura por delante.
+    return [...captures, ...quiet];
   }
 
   /** Direcciones en las que puede actuar una ficha. */
@@ -169,9 +172,13 @@ export class DraughtsRules implements RuleEngine {
 
     const moves: EngineMove[] = [];
     for (const [df, dr] of this.directions(piece)) {
-      const to = shift(from, df, dr);
-      if (to && !this.board.has(to)) {
+      // El peón avanza una casilla; la dama recorre la diagonal entera hasta
+      // topar con algo o con el borde.
+      for (let step = 1; ; step++) {
+        const to = shift(from, df * step, dr * step);
+        if (!to || this.board.has(to)) break;
         moves.push({ from, to, san: `${from}-${to}` });
+        if (!piece.king) break;
       }
     }
     return moves;
@@ -183,17 +190,55 @@ export class DraughtsRules implements RuleEngine {
 
     const moves: EngineMove[] = [];
     for (const [df, dr] of this.directions(piece)) {
-      const jumped = shift(from, df, dr);
-      const landing = shift(from, df * 2, dr * 2);
-      if (!jumped || !landing) continue;
+      if (!piece.king) {
+        // El peón salta justo por encima de la ficha de al lado.
+        const jumped = shift(from, df, dr);
+        const landing = shift(from, df * 2, dr * 2);
+        if (!jumped || !landing) continue;
 
-      const victim = this.board.get(jumped);
-      if (!victim || victim.color === piece.color) continue;
-      if (this.board.has(landing)) continue;
+        const victim = this.board.get(jumped);
+        if (!victim || victim.color === piece.color) continue;
+        if (this.board.has(landing)) continue;
 
-      moves.push({ from, to: landing, san: `${from}x${landing}` });
+        moves.push({ from, to: landing, san: `${from}x${landing}` });
+        continue;
+      }
+
+      // La dama busca la primera ficha de la diagonal, por lejos que esté.
+      let distance = 1;
+      let victimAt = 0;
+      for (; ; distance++) {
+        const square = shift(from, df * distance, dr * distance);
+        if (!square) break;
+        const occupant = this.board.get(square);
+        if (!occupant) continue;
+        // Una ficha propia tapa la diagonal; una enemiga se puede comer.
+        if (occupant.color !== piece.color) victimAt = distance;
+        break;
+      }
+      if (victimAt === 0) continue;
+
+      // Y puede caer en cualquier casilla libre que haya detrás.
+      for (let landing = victimAt + 1; ; landing++) {
+        const square = shift(from, df * landing, dr * landing);
+        if (!square || this.board.has(square)) break;
+        moves.push({ from, to: square, san: `${from}x${square}` });
+      }
     }
     return moves;
+  }
+
+  /** La ficha comida al ir de una casilla a otra en línea diagonal. */
+  private victimBetween(from: string, to: string): string | null {
+    const df = Math.sign(fileOf(to) - fileOf(from));
+    const dr = Math.sign(rankOf(to) - rankOf(from));
+    const steps = Math.abs(fileOf(to) - fileOf(from));
+
+    for (let step = 1; step < steps; step++) {
+      const square = shift(from, df * step, dr * step)!;
+      if (this.board.has(square)) return square;
+    }
+    return null;
   }
 
   // -------------------------------------------------------------------------
@@ -209,11 +254,13 @@ export class DraughtsRules implements RuleEngine {
     const piece = this.board.get(from)!;
     const isCapture = chosen.san.includes('x');
 
-    this.board.delete(from);
     if (isCapture) {
-      // La ficha comida está justo entre la casilla de salida y la de llegada.
-      this.board.delete(midpoint(from, to));
+      // Con la dama volando, la ficha comida puede estar a varias casillas, así
+      // que hay que buscarla en vez de suponerla en el punto medio.
+      const victim = this.victimBetween(from, to);
+      if (victim) this.board.delete(victim);
     }
+    this.board.delete(from);
     this.board.set(to, piece);
 
     // Coronar. En damas inglesas coronar termina el turno aunque se pudiera
@@ -282,11 +329,6 @@ function shift(square: string, df: number, dr: number): string | null {
   const rank = rankOf(square) + dr;
   if (file < 0 || file > 7 || rank < 1 || rank > 8) return null;
   return squareAt(file, rank);
-}
-
-/** La casilla que queda entre otras dos separadas por un salto. */
-function midpoint(from: string, to: string): string {
-  return squareAt((fileOf(from) + fileOf(to)) / 2, (rankOf(from) + rankOf(to)) / 2);
 }
 
 /** Las casillas negras, que son las únicas que se usan. La a1 es negra. */

@@ -319,85 +319,26 @@ void main() {
       expect(chosenPromotion, 'n');
     });
 
-    testWidgets('en 3D sigue habiendo 64 casillas tocables', (tester) async {
+    testWidgets('dibuja las 32 piezas con su color', (tester) async {
       await tester.pumpWidget(_wrap(ChessBoard(
         state: _state(),
-        perspective: true,
         onMove: (_, _, _) {},
         askPromotion: () async => null,
       )));
 
-      expect(find.byType(GestureDetector), findsNWidgets(64));
-      // Si la perspectiva dejase alguna casilla fuera de alcance, el juego
-      // sería injugable en 3D.
-      for (final square in ['a1', 'h1', 'a8', 'h8', 'e4', 'd5']) {
-        expect(
-          find.byKey(ValueKey('square-$square')).hitTestable(),
-          findsOneWidget,
-          reason: 'La casilla $square no se puede tocar en 3D',
-        );
-      }
-    });
+      final pieces = _paintedPieces(tester);
+      expect(pieces.length, 32);
 
-    testWidgets('en 3D el toque cae en la casilla correcta', (tester) async {
-      String? from;
-      String? to;
-
-      await tester.pumpWidget(_wrap(ChessBoard(
-        state: _state(legalMoves: [
-          {'from': 'e2', 'to': 'e4', 'san': 'e4'},
-        ]),
-        perspective: true,
-        onMove: (f, t, _) {
-          from = f;
-          to = t;
-        },
-        askPromotion: () async => null,
-      )));
-
-      // Se toca donde se ve cada casilla en pantalla, ya deformada por la
-      // perspectiva. Si la transformación no convirtiese las coordenadas del
-      // toque, esto acabaría en otra casilla.
-      await tester.tapAt(
-          tester.getCenter(find.byKey(const ValueKey('square-e2'))));
-      await tester.pump();
-      await tester.tapAt(
-          tester.getCenter(find.byKey(const ValueKey('square-e4'))));
-      await tester.pump();
-
-      expect(from, 'e2');
-      expect(to, 'e4');
-    });
-
-    testWidgets('las dos vistas dibujan las mismas piezas', (tester) async {
-      for (final perspective in [false, true]) {
-        await tester.pumpWidget(_wrap(ChessBoard(
-          state: _state(),
-          perspective: perspective,
-          onMove: (_, _, _) {},
-          askPromotion: () async => null,
-        )));
-
-        final pieces = _paintedPieces(tester);
-        expect(pieces.length, 32,
-            reason: 'Faltan piezas con perspective=$perspective');
-
-        // Las piezas se dibujaron durante un tiempo con símbolos de fuente, y
-        // el peón blanco salía negro porque el sistema lo sustituía por un
-        // emoji, que lleva su propio color. Esto lo vigila.
-        final whitePawns = pieces
-            .where((p) => p.type == 'p' && p.color == PieceColor.white)
-            .length;
-        final blackPawns = pieces
-            .where((p) => p.type == 'p' && p.color == PieceColor.black)
-            .length;
-        expect(whitePawns, 8, reason: 'Peones blancos con perspective=$perspective');
-        expect(blackPawns, 8, reason: 'Peones negros con perspective=$perspective');
-
-        // Y un bando entero de cada color.
-        expect(pieces.where((p) => p.color == PieceColor.white).length, 16);
-        expect(pieces.where((p) => p.color == PieceColor.black).length, 16);
-      }
+      // Las piezas se dibujaron durante un tiempo con símbolos de fuente, y el
+      // peón blanco salía negro porque el sistema lo sustituía por un emoji,
+      // que lleva su propio color. Esto lo vigila.
+      expect(
+        pieces.where((p) => p.type == 'p' && p.color == PieceColor.white).length,
+        8,
+        reason: 'Los ocho peones blancos deben ser blancos',
+      );
+      expect(pieces.where((p) => p.color == PieceColor.white).length, 16);
+      expect(pieces.where((p) => p.color == PieceColor.black).length, 16);
     });
 
     group('Damas', () {

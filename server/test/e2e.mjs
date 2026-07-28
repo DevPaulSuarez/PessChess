@@ -445,15 +445,16 @@ async function testDraughts() {
   ]);
   check('las jugadas se anotan con guion', tras.history[0] === 'c3-d4', tras.history[0]);
 
-  // Ahora comer es obligatorio y solo hay una forma.
-  const forzado = await stateWhere(white, (s) => s.history.length === 2);
-  check('comer es obligatorio', forzado.legalMoves.length === 1, `${forzado.legalMoves.length}`);
-  check('y es el salto correcto', forzado.legalMoves[0].san === 'd4xb6', forzado.legalMoves[0].san);
-
-  // Una jugada que no sea comer se rechaza.
-  white.emit('move', { from: 'a3', to: 'b4' });
-  const error = await once(white, 'error_msg');
-  check('rechaza no comer pudiendo', error.code === 'bad_move', error.code);
+  // Comer no es obligatorio: la captura se ofrece junto al resto de jugadas.
+  const opciones = await stateWhere(white, (s) => s.history.length === 2);
+  check('la captura se ofrece',
+    opciones.legalMoves.some((m) => m.san === 'd4xb6'),
+    opciones.legalMoves.map((m) => m.san).join());
+  check('pero no es la única opción', opciones.legalMoves.length > 1,
+    `${opciones.legalMoves.length}`);
+  check('se puede mover otra ficha en su lugar',
+    opciones.legalMoves.some((m) => m.from === 'a3'),
+    opciones.legalMoves.map((m) => m.san).join());
 
   const comido = await playMoves(white, black, [{ from: 'd4', to: 'b6' }], 2);
   check('la captura se anota con equis', comido.history.at(-1) === 'd4xb6', comido.history.at(-1));

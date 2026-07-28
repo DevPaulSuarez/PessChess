@@ -5,6 +5,7 @@ import { Server, type Socket } from 'socket.io';
 
 import { GameManager } from './rooms.js';
 import { GAMES, isGameKind, type GameKind } from './rules/registry.js';
+import { TankServer } from './tanks/sockets.js';
 import type { Game } from './game.js';
 import type {
   CreateRoomPayload,
@@ -31,12 +32,13 @@ const io = new Server(httpServer, {
 });
 
 const manager = new GameManager();
+const tanks = new TankServer(io);
 /** En qué partida está cada socket, para no buscarla en cada mensaje. */
 const socketGame = new Map<string, string>();
 
 app.get('/health', (_req, res) => {
   // `games` es cuántas partidas hay abiertas; `offers`, a qué se puede jugar.
-  res.json({ ok: true, ...manager.stats, offers: Object.keys(GAMES) });
+  res.json({ ok: true, ...manager.stats, ...tanks.stats, offers: [...Object.keys(GAMES), 'tanks'] });
 });
 
 // ---------------------------------------------------------------------------
@@ -99,6 +101,10 @@ function attach(socket: Socket, game: Game): void {
 // ---------------------------------------------------------------------------
 
 io.on('connection', (socket) => {
+  // Los tanques van por su cuenta: es un juego en tiempo real y no encaja en
+  // la maquinaria por turnos del ajedrez y las damas.
+  tanks.register(socket);
+
   socket.on('create_room', (payload: CreateRoomPayload) => {
     manager.leaveQueue(socket.id);
     const game = manager.create(

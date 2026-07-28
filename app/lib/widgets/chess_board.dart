@@ -56,16 +56,6 @@ class BoardColors {
   static const hintOnDark = Color(0x73FFFFFF);
 }
 
-/// Cuánto se inclina el tablero hacia atrás en el modo 3D, en radianes.
-///
-/// Unos 30°: suficiente para dar sensación de volumen sin que las filas del
-/// fondo se aplasten tanto que cueste distinguirlas.
-const _tiltAngle = 0.52;
-
-/// Fuerza del punto de fuga. Cuanto mayor, más exagerada la profundidad y más
-/// pequeño acaba viéndose el tablero, porque hay que encogerlo para que quepa.
-const _perspective = 0.0012;
-
 /// El tablero interactivo.
 ///
 /// No sabe nada de reglas de ajedrez: se limita a pintar la posición que le
@@ -76,14 +66,9 @@ class ChessBoard extends StatefulWidget {
     required this.state,
     required this.onMove,
     required this.askPromotion,
-    this.perspective = false,
   });
 
   final GameState state;
-
-  /// Dibuja el tablero inclinado y las piezas de pie, en lugar de visto
-  /// completamente desde arriba.
-  final bool perspective;
 
   /// Se llama cuando el jugador elige una jugada completa y legal.
   final void Function(String from, String to, String? promotion) onMove;
@@ -199,7 +184,6 @@ class _ChessBoardState extends State<ChessBoard> {
           // ancho haría que el tablero se saliese por abajo.
           final side = math.min(constraints.maxWidth, constraints.maxHeight);
           final squareSize = side / 8;
-          final tilt = widget.perspective ? _tiltAngle : 0.0;
 
           final grid = Column(
             mainAxisSize: MainAxisSize.min,
@@ -217,7 +201,6 @@ class _ChessBoardState extends State<ChessBoard> {
                     // pruebas, sin depender de su posición en pantalla.
                     key: ValueKey('square-$square'),
                     size: squareSize,
-                    tilt: tilt,
                     game: _state.game,
                     // a1 es casilla negra y h1 blanca: "la clara, a la derecha".
                     isLight: (fileIndex + rank) % 2 == 0,
@@ -240,51 +223,20 @@ class _ChessBoardState extends State<ChessBoard> {
             }),
           );
 
-          if (!widget.perspective) {
-            return DecoratedBox(
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(6),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.25),
-                    blurRadius: 16,
-                    offset: const Offset(0, 6),
-                  ),
-                ],
-              ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(6),
-                child: grid,
-              ),
-            );
-          }
-
-          // En perspectiva no se recorta el tablero: las piezas se levantan por
-          // encima de su casilla y un recorte les cortaría la cabeza.
-          //
-          // `Transform` convierte también las coordenadas de los toques, así
-          // que se puede seguir tocando cada casilla justo donde se la ve.
-          //
-          // La fila más cercana se agranda al proyectarla y sus esquinas se
-          // saldrían del hueco reservado al tablero; fuera de ese hueco los
-          // toques ya no llegan. Por eso se encoge todo lo justo para que la
-          // esquina más cercana caiga exactamente en el borde.
-          final halfBoard = side / 2;
-          final fit = 1 - _perspective * halfBoard * math.sin(tilt);
-
-          return Center(
-            child: Transform.scale(
-              scale: fit,
-              child: Transform(
-                alignment: Alignment.center,
-                transform: Matrix4.identity()
-                  ..setEntry(3, 2, _perspective)
-                  // Giro negativo: así la fila del fondo se aleja de la cámara.
-                  // Con el signo contrario el tablero se inclina hacia el
-                  // jugador y se ve del revés.
-                  ..rotateX(-tilt),
-                child: grid,
-              ),
+          return DecoratedBox(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(6),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.25),
+                  blurRadius: 16,
+                  offset: const Offset(0, 6),
+                ),
+              ],
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: grid,
             ),
           );
         },
@@ -297,7 +249,6 @@ class _Square extends StatelessWidget {
   const _Square({
     super.key,
     required this.size,
-    required this.tilt,
     required this.game,
     required this.isLight,
     required this.piece,
@@ -312,9 +263,6 @@ class _Square extends StatelessWidget {
   });
 
   final double size;
-
-  /// Inclinación del tablero. Cero en el modo plano.
-  final double tilt;
 
   /// A qué se juega: decide la silueta de las piezas.
   final GameKind game;
@@ -335,8 +283,6 @@ class _Square extends StatelessWidget {
     final base = isLight ? BoardColors.light : BoardColors.dark;
     final labelColor = isLight ? BoardColors.dark : BoardColors.light;
 
-    final is3d = tilt > 0;
-
     return GestureDetector(
       onTap: onTap,
       child: SizedBox(
@@ -344,10 +290,6 @@ class _Square extends StatelessWidget {
         height: size,
         child: Stack(
           fit: StackFit.expand,
-          // Las piezas de pie sobresalen por arriba de su casilla. Como las
-          // filas se pintan de fondo a frente, se tapan entre ellas igual que
-          // en un tablero real.
-          clipBehavior: is3d ? Clip.none : Clip.hardEdge,
           children: [
             ColoredBox(color: base),
             if (isLastMove) const ColoredBox(color: BoardColors.lastMove),
@@ -395,57 +337,10 @@ class _Square extends StatelessWidget {
                 ),
               ),
 
-            // En 3D las pistas van debajo de la pieza, como marcas pintadas en
-            // el suelo alrededor de ella. En plano van encima, que se ve mejor.
-            if (is3d && isDestination) _hint(),
+            if (piece != null) _PieceGlyph(piece: piece!, size: size, game: game),
 
-            if (piece != null)
-              if (is3d) ...[
-                // Sombra en el plano del tablero: es lo que ancla la pieza a su
-                // casilla y evita que parezca flotando.
-                Positioned(
-                  left: size * 0.14,
-                  right: size * 0.14,
-                  bottom: size * 0.06,
-                  height: size * 0.24,
-                  child: const IgnorePointer(
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        gradient: RadialGradient(
-                          colors: [Colors.black54, Colors.transparent],
-                          stops: [0.2, 1],
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-                // La pieza se contrarresta la inclinación del tablero para
-                // quedarse mirando al jugador, apoyada sobre su casilla.
-                Positioned(
-                  left: -size * 0.15,
-                  right: -size * 0.15,
-                  bottom: size * 0.04,
-                  height: size * 1.45,
-                  child: IgnorePointer(
-                    child: Transform(
-                      alignment: Alignment.bottomCenter,
-                      // Deshace la inclinación del tablero para que la pieza
-                      // quede mirando al jugador en vez de tumbada.
-                      transform: Matrix4.identity()..rotateX(tilt),
-                      child: _PieceGlyph(
-                        piece: piece!,
-                        size: size,
-                        game: game,
-                        standing: true,
-                      ),
-                    ),
-                  ),
-                ),
-              ] else
-                _PieceGlyph(piece: piece!, size: size, game: game),
+            if (isDestination) _hint(),
 
-            if (!is3d && isDestination) _hint(),
           ],
         ),
       ),
@@ -488,26 +383,18 @@ class _PieceGlyph extends StatelessWidget {
     required this.piece,
     required this.size,
     required this.game,
-    this.standing = false,
   });
 
   final Piece piece;
   final double size;
   final GameKind game;
 
-  /// En el modo 3D la pieza se apoya sobre la casilla en vez de centrarse en
-  /// ella, y se dibuja algo más grande para compensar el escorzo.
-  final bool standing;
-
   @override
   Widget build(BuildContext context) {
-    // De pie se dibuja más grande, porque en perspectiva la pieza se ve
-    // escorzada y con el tamaño plano quedaría enana.
-    final box = size * (standing ? 1.15 : 0.88);
+    final box = size * 0.88;
 
     return IgnorePointer(
-      child: Align(
-        alignment: standing ? Alignment.bottomCenter : Alignment.center,
+      child: Center(
         child: SizedBox(
           width: box,
           height: box,
@@ -516,7 +403,6 @@ class _PieceGlyph extends StatelessWidget {
               type: piece.type,
               color: piece.color,
               game: game,
-              shaded: standing,
             ),
           ),
         ),

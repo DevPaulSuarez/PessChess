@@ -19,8 +19,14 @@ enum GameKind {
   draughts(
     code: 'draughts',
     name: 'Damas',
-    description: 'Damas inglesas: comer es obligatorio y al final coronas.',
+    description: 'Comes si quieres, y la dama recorre la diagonal entera.',
     emoji: '⛃',
+  ),
+  tanks(
+    code: 'tanks',
+    name: 'Tanques',
+    description: 'Batalla en tiempo real. Elige color, destruye y mejora.',
+    emoji: '🛡️',
   );
 
   const GameKind({
