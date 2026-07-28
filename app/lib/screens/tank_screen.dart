@@ -458,13 +458,6 @@ class _TankScreenState extends State<TankScreen> {
               ),
             ),
 
-            // La mejora se elige sin parar el juego: la batalla sigue mientras.
-            if (me != null && me.upgrades > 0 && me.alive)
-              _UpgradeBar(
-                pending: me.upgrades,
-                onChoose: _tanks.chooseUpgrade,
-              ),
-
             if (world.finished)
               _Outcome(world: world, onLeave: () {
                 _tanks.leave();
@@ -543,54 +536,6 @@ class _Scoreboard extends StatelessWidget {
                 ],
               ),
             ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _UpgradeBar extends StatelessWidget {
-  const _UpgradeBar({required this.pending, required this.onChoose});
-
-  final int pending;
-  final void Function(String) onChoose;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      color: Theme.of(context).colorScheme.secondaryContainer,
-      padding: const EdgeInsets.all(12),
-      child: Column(
-        children: [
-          Text(pending == 1
-              ? '¡Has destruido un tanque! Elige tu mejora'
-              : 'Tienes $pending mejoras por elegir'),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Expanded(
-                child: FilledButton.tonal(
-                  onPressed: () => onChoose('life'),
-                  child: const Text('+ Vida'),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: FilledButton.tonal(
-                  onPressed: () => onChoose('defense'),
-                  child: const Text('+ Defensa'),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: FilledButton.tonal(
-                  onPressed: () => onChoose('attack'),
-                  child: const Text('+ Ataque'),
-                ),
-              ),
-            ],
           ),
         ],
       ),

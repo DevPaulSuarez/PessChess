@@ -351,18 +351,25 @@ export class Arena {
     if (tank.playerId === null || tank.teleportCooldown > 0) return;
     if (this.walls[Math.floor(tank.y)]?.[Math.floor(tank.x)] !== 3) return;
 
-    for (let attempt = 0; attempt < 60; attempt++) {
-      const x = this.random(ARENA.size - 4) + 2 + 0.5;
-      const y = this.random(ARENA.size - 4) + 2 + 0.5;
-      // Nada de aparecer dentro de otro arbusto: encadenaría saltos sin fin.
-      if (this.walls[Math.floor(y)][Math.floor(x)] !== 0) continue;
-      if (!this.tankFits(tank, x, y)) continue;
-
-      tank.x = x;
-      tank.y = y;
-      tank.teleportCooldown = ARENA.teleportCooldownMs;
-      return;
+    // Se sale por otro arbusto, no en campo abierto: son portales entre
+    // matorrales, así que se aparece igual de escondido.
+    const destinations: Array<{ x: number; y: number }> = [];
+    for (let cy = 0; cy < ARENA.size; cy++) {
+      for (let cx = 0; cx < ARENA.size; cx++) {
+        if (this.walls[cy][cx] !== 3) continue;
+        const x = cx + 0.5;
+        const y = cy + 0.5;
+        // Ni al mismo matorral del que salgo, ni a uno donde no quepa.
+        if (Math.abs(x - tank.x) < 3 && Math.abs(y - tank.y) < 3) continue;
+        if (this.tankFits(tank, x, y)) destinations.push({ x, y });
+      }
     }
+    if (destinations.length === 0) return;
+
+    const spot = destinations[this.random(destinations.length)];
+    tank.x = spot.x;
+    tank.y = spot.y;
+    tank.teleportCooldown = ARENA.teleportCooldownMs;
   }
 
   /** El terreno que hay bajo el centro del tanque. */
@@ -486,28 +493,24 @@ export class Arena {
     // dos cuentas caen en la misma celda y se mira una sola vez.
     const sides = new Set([Math.floor(across - 0.01), Math.floor(across + 0.01)]);
 
-    let consumed = false;
+    // Cada disparo se lleva **un solo cuadrante**: el primero que encuentra de
+    // los dos que la junta separa. Así un bloque de dos por dos cae en cuatro
+    // tiros desde el mismo sitio, sin tener que reposicionar el tanque.
     for (const side of sides) {
       const cx = horizontal ? alongCell : side;
       const cy = horizontal ? side : alongCell;
       const cell = this.walls[cy]?.[cx];
-      if (cell === undefined) continue;
 
       if (cell === 1) {
-        this.walls[cy][cx] = 0; // el ladrillo se rompe por trozos
+        this.walls[cy][cx] = 0;
         this.events.push({ kind: 'brick', x: cx + 0.5, y: cy + 0.5 });
-        consumed = true;
-      } else if (cell === 2) {
-        // El acero solo cede a un disparo cargado. Es la ventaja de cargar.
-        if (bullet.charged) {
-          this.walls[cy][cx] = 0;
-          this.events.push({ kind: 'brick', x: cx + 0.5, y: cy + 0.5 });
-        }
-        consumed = true;
+        return true;
       }
-      // Arbustos (3) y agua (4) las cruza sin enterarse.
+      // El acero no se rompe con nada: solo detiene la bala.
+      if (cell === 2) return true;
+      // Arbustos (3), agua (4) y hielo (5) los cruza sin enterarse.
     }
-    return consumed;
+    return false;
   }
 
   private damage(target: Tank, bullet: Bullet): void {
@@ -524,15 +527,12 @@ export class Arena {
     target.alive = false;
     this.events.push({ kind: 'tank', x: target.x, y: target.y });
     const shooter = this.tanks.find((t) => t.id === bullet.tankId);
-    if (shooter) {
-      shooter.kills++;
-      // Solo los jugadores mejoran; la máquina no tiene con qué gastarlo.
-      if (shooter.playerId !== null) shooter.pendingUpgrades++;
-    }
+    if (!shooter) return;
+    shooter.kills++;
 
-    // Derribar a un tanque de la máquina da premio al momento, y sale al azar:
-    // más vida, más pegada o más escudo.
-    if (target.playerId === null && shooter?.playerId) {
+    // Derribar da premio al momento y al azar. Antes había que elegir entre tres
+    // botones, pero interrumpía la batalla para nada: ahora sale solo.
+    if (shooter.playerId !== null) {
       const kinds: PickupKind[] = ['life', 'defense', 'attack'];
       this.lastReward = kinds[this.random(kinds.length)];
       this.grant(shooter, this.lastReward);

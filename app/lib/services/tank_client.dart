@@ -384,9 +384,6 @@ class TankClient extends ChangeNotifier {
     _socket?.emit('tank_input', {'dir': dir, 'firing': firing});
   }
 
-  void chooseUpgrade(String upgrade) =>
-      _socket?.emit('tank_upgrade', {'upgrade': upgrade});
-
   void leave() {
     _socket?.emit('tank_leave');
     _reset();

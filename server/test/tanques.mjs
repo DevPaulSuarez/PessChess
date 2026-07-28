@@ -156,9 +156,8 @@ console.log('\nDisparar:');
   check('el acero aguanta', arena.walls[13][8] === 2, `${arena.walls[13][8]}`);
 }
 
-console.log('\nImpactos consistentes en las cuatro direcciones:');
+console.log('\nCuatro tiros derriban un bloque, desde donde sea:');
 {
-  // Un bloque de ladrillo entero delante del tanque, en cada dirección.
   for (const [dir, tx, ty, bx, by] of [
     ['right', 6, 13, 10, 12],
     ['left', 16, 13, 10, 12],
@@ -166,7 +165,6 @@ console.log('\nImpactos consistentes en las cuatro direcciones:');
     ['up', 13, 16, 12, 10],
   ]) {
     const arena = new Arena([{ id: 't1', playerId: 'p1', color: '#f00' }], 9, {});
-    // Campo despejado y un bloque de dos por dos a tiro.
     for (let y = 0; y < ARENA.size; y++) {
       for (let x = 0; x < ARENA.size; x++) arena.walls[y][x] = 0;
     }
@@ -176,23 +174,20 @@ console.log('\nImpactos consistentes en las cuatro direcciones:');
     const t = arena.tanks[0];
     t.x = tx; t.y = ty; t.dir = dir;
 
-    // Un disparo, sin mover el tanque.
-    tapFire(arena, 't1');
-    advance(arena, 600);
-    const rotas = [
+    const rotas = () => [
       arena.walls[by][bx], arena.walls[by][bx + 1],
       arena.walls[by + 1][bx], arena.walls[by + 1][bx + 1],
     ].filter((c) => c === 0).length;
-    check(`un disparo hacia ${dir} rompe media pared`, rotas === 2, `${rotas} celdas`);
 
-    // Y el segundo remata, sin moverse.
-    tapFire(arena, 't1');
-    advance(arena, 800);
-    const total = [
-      arena.walls[by][bx], arena.walls[by][bx + 1],
-      arena.walls[by + 1][bx], arena.walls[by + 1][bx + 1],
-    ].filter((c) => c === 0).length;
-    check(`y el segundo hacia ${dir} la termina sin moverse`, total === 4, `${total} celdas`);
+    // Cuatro disparos, sin mover el tanque ni un milímetro.
+    const cuenta = [];
+    for (let i = 0; i < 4; i++) {
+      tapFire(arena, 't1');
+      advance(arena, 700);
+      cuenta.push(rotas());
+    }
+    check(`hacia ${dir}: un cuadrante por disparo`,
+      cuenta.join() === '1,2,3,4', cuenta.join());
   }
 }
 
@@ -207,7 +202,8 @@ console.log('\nAcero y agua:');
 
   chargedFire(arena, 't1');
   advance(arena, 600);
-  check('el cargado sí lo revienta', arena.walls[13][8] === 0, `${arena.walls[13][8]}`);
+  check('ni siquiera el cargado puede con él', arena.walls[13][8] === 2,
+    `${arena.walls[13][8]}`);
 }
 
 {
@@ -462,22 +458,24 @@ console.log('\nDerribar un plomo da premio:');
     ['life', 'defense', 'attack'].includes(arena.lastReward), arena.lastReward);
 }
 
-console.log('\nDestruir y mejorar:');
+console.log('\nDestruir da premio automático:');
 {
   const { arena, a, b } = duel();
   b.hp = 1; b.defense = 0;
+  const antes = a.hp + a.maxHp + a.attack + a.defense;
+
   tapFire(arena, 't1');
   advance(arena, 800);
 
   check('el tanque destruido queda fuera', b.alive === false);
   check('el que destruye suma una baja', a.kills === 1, `${a.kills}`);
-  check('y gana una mejora por gastar', a.pendingUpgrades === 1, `${a.pendingUpgrades}`);
-
-  const vidaMax = a.maxHp;
-  check('puede subir vida', arena.applyUpgrade('t1', 'life') === true);
-  check('la vida sube de verdad', a.maxHp === vidaMax + 1, `${a.maxHp}`);
-  check('la mejora se consume', a.pendingUpgrades === 0, `${a.pendingUpgrades}`);
-  check('no puede mejorar sin haberla ganado', arena.applyUpgrade('t1', 'attack') === false);
+  check('el premio se aplica solo, sin preguntar',
+    a.hp + a.maxHp + a.attack + a.defense > antes,
+    `${antes} -> ${a.hp + a.maxHp + a.attack + a.defense}`);
+  check('y es de una de las tres clases',
+    ['life', 'defense', 'attack'].includes(arena.lastReward), arena.lastReward);
+  check('ya no quedan mejoras que elegir a mano', a.pendingUpgrades === 0,
+    `${a.pendingUpgrades}`);
 }
 
 console.log('\nGanar:');
@@ -604,18 +602,29 @@ console.log('\nEl campo está bien formado:');
 console.log('\nLos arbustos son portales:');
 {
   const { arena, a } = duel();
-  // Un arbusto justo delante del tanque del jugador.
-  for (let x = 7; x <= 9; x++) { arena.walls[13][x] = 3; arena.walls[12][x] = 3; }
+  // Dos matorrales lejos el uno del otro: el de salida y el de llegada.
+  for (const y of [12, 13, 14]) {
+    for (let x = 7; x <= 9; x++) arena.walls[y][x] = 3;
+    for (let x = 19; x <= 21; x++) arena.walls[y][x] = 3;
+  }
   const partida = { x: a.x, y: a.y };
 
+  // Hay que mirar en el instante del salto: si se deja correr, el tanque sigue
+  // avanzando y sale del matorral por su propio pie.
   arena.setInput('t1', { dir: 'right', firing: false });
-  advance(arena, 900);
-  const saltó = Math.abs(a.x - partida.x) > 6 || Math.abs(a.y - partida.y) > 3;
-  check('entrar en el arbusto lleva a otro sitio', saltó,
-    `${partida.x},${partida.y} -> ${a.x.toFixed(1)},${a.y.toFixed(1)}`);
-  check('y no aparece dentro de un arbusto',
-    arena.walls[Math.floor(a.y)][Math.floor(a.x)] === 0,
-    `${arena.walls[Math.floor(a.y)][Math.floor(a.x)]}`);
+  let alSalir = null;
+  for (let t = 0; t < 900 && alSalir === null; t += ARENA.tickMs) {
+    const antes = a.x;
+    arena.tick(ARENA.tickMs);
+    if (Math.abs(a.x - antes) > 3) alSalir = { x: a.x, y: a.y };
+  }
+
+  check('entrar en el arbusto lleva lejos', alSalir !== null,
+    `${partida.x} -> ${a.x.toFixed(1)}`);
+  check('y se sale por otro arbusto',
+    alSalir !== null &&
+      arena.walls[Math.floor(alSalir.y)][Math.floor(alSalir.x)] === 3,
+    alSalir ? `${arena.walls[Math.floor(alSalir.y)][Math.floor(alSalir.x)]}` : 'no saltó');
 }
 
 {
