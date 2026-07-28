@@ -40,6 +40,10 @@ GameState _state({
 
 Widget _wrap(Widget child) => MaterialApp(home: Scaffold(body: child));
 
+/// Cuántas casillas están marcadas como destino posible.
+int _destinationHints(WidgetTester tester) =>
+    find.byKey(const ValueKey('destino')).evaluate().length;
+
 /// Las piezas que hay pintadas ahora mismo en el tablero.
 List<PiecePainter> _paintedPieces(WidgetTester tester) => tester
     .widgetList<CustomPaint>(find.byType(CustomPaint))
@@ -189,6 +193,79 @@ void main() {
 
       expect(from, 'e4');
       expect(to, 'd6', reason: 'El caballo debe poder comerse el peón de d6');
+    });
+
+    group('Enroque', () {
+      // Rey en e1 con las dos torres, y el enroque disponible por ambos lados.
+      // El servidor manda el enroque como movimiento del rey: e1 a g1 o a c1.
+      ChessBoard board(void Function(String, String) onMove) => ChessBoard(
+            state: _state(
+              fen: '4k3/8/8/8/8/8/8/R3K2R w KQ - 0 1',
+              legalMoves: [
+                {'from': 'e1', 'to': 'g1', 'san': 'O-O'},
+                {'from': 'e1', 'to': 'c1', 'san': 'O-O-O'},
+                {'from': 'e1', 'to': 'f1', 'san': 'Rf1'},
+              ],
+            ),
+            onMove: (from, to, _) => onMove(from, to),
+            askPromotion: () async => null,
+          );
+
+      testWidgets('tocando el rey y su casilla de destino', (tester) async {
+        String? from, to;
+        await tester.pumpWidget(_wrap(board((f, t) {
+          from = f;
+          to = t;
+        })));
+
+        await tester.tap(find.byKey(const ValueKey('square-e1')));
+        await tester.pump();
+        await tester.tap(find.byKey(const ValueKey('square-g1')));
+        await tester.pump();
+
+        expect(from, 'e1');
+        expect(to, 'g1');
+      });
+
+      testWidgets('tocando el rey y luego la torre', (tester) async {
+        String? from, to;
+        await tester.pumpWidget(_wrap(board((f, t) {
+          from = f;
+          to = t;
+        })));
+
+        await tester.tap(find.byKey(const ValueKey('square-e1')));
+        await tester.pump();
+        // Tocar la torre es lo que espera la gente; debe acabar en el mismo
+        // enroque que tocar g1.
+        await tester.tap(find.byKey(const ValueKey('square-h1')));
+        await tester.pump();
+
+        expect(from, 'e1');
+        expect(to, 'g1', reason: 'Tocar la torre debe enrocar');
+      });
+
+      testWidgets('el enroque largo, por la torre de a1', (tester) async {
+        String? to;
+        await tester.pumpWidget(_wrap(board((_, t) => to = t)));
+
+        await tester.tap(find.byKey(const ValueKey('square-e1')));
+        await tester.pump();
+        await tester.tap(find.byKey(const ValueKey('square-a1')));
+        await tester.pump();
+
+        expect(to, 'c1', reason: 'La torre de a1 debe hacer el enroque largo');
+      });
+
+      testWidgets('las dos torres se marcan como destino', (tester) async {
+        await tester.pumpWidget(_wrap(board((_, _) {})));
+
+        await tester.tap(find.byKey(const ValueKey('square-e1')));
+        await tester.pump();
+
+        // Cinco marcas: g1, c1 y f1 del propio rey, más las dos torres.
+        expect(_destinationHints(tester), 5);
+      });
     });
 
     testWidgets('no deja mover cuando no es tu turno', (tester) async {

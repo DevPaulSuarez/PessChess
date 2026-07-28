@@ -110,6 +110,22 @@ class _ChessBoardState extends State<ChessBoard> {
   /// El tablero se ve siempre desde el lado del jugador.
   bool get _flipped => _state.yourColor == PieceColor.black;
 
+  /// Permite enrocar tocando la torre, además de la casilla del rey.
+  ///
+  /// Para el servidor el enroque es siempre un movimiento del rey dos casillas
+  /// (e1 a g1), y tocar la torre lo rechazaría. Pero tocar la torre es el gesto
+  /// que espera casi todo el mundo, así que aquí se traduce: la casilla de la
+  /// torre lleva a la jugada de enroque que le corresponde.
+  Map<String, LegalMove> _castlingByRook(String from) {
+    final byRook = <String, LegalMove>{};
+    for (final move in _state.movesFrom(from)) {
+      final rank = move.to.substring(1);
+      if (move.san == 'O-O') byRook['h$rank'] = move;
+      if (move.san == 'O-O-O') byRook['a$rank'] = move;
+    }
+    return byRook;
+  }
+
   Future<void> _handleTap(String square, Map<String, Piece> pieces) async {
     if (!_state.isYourTurn) return;
 
@@ -131,6 +147,15 @@ class _ChessBoardState extends State<ChessBoard> {
           if (promotion == null) return; // se arrepintió
         }
         widget.onMove(from, square, promotion);
+        return;
+      }
+
+      // ¿Han tocado la torre para enrocar?
+      final castling = _castlingByRook(_selected!)[square];
+      if (castling != null) {
+        final from = _selected!;
+        setState(() => _selected = null);
+        widget.onMove(from, castling.to, null);
         return;
       }
     }
@@ -157,7 +182,12 @@ class _ChessBoardState extends State<ChessBoard> {
     final pieces = parseFen(_state.fen);
     final destinations = _selected == null
         ? <String>{}
-        : _state.movesFrom(_selected!).map((m) => m.to).toSet();
+        : {
+            ..._state.movesFrom(_selected!).map((m) => m.to),
+            // La torre con la que se puede enrocar también se marca, para que
+            // se vea que tocarla vale.
+            ..._castlingByRook(_selected!).keys,
+          };
     final checkedKing = _checkedKingSquare(pieces);
     final lastMove = _state.lastMove;
 
@@ -422,6 +452,7 @@ class _Square extends StatelessWidget {
     final color = isLight ? BoardColors.hintOnLight : BoardColors.hintOnDark;
 
     return IgnorePointer(
+      key: const ValueKey('destino'),
       child: Center(
         child: isCapture
             ? Container(

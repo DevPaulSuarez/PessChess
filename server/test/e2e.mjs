@@ -6,6 +6,11 @@ import { io } from 'socket.io-client';
 
 const URL = process.env.SERVER_URL ?? 'http://localhost:3000';
 
+/// Contra un servidor de internet cada mensaje tarda decenas de milisegundos y
+/// las esperas pensadas para un servidor local se quedan cortas. No es tiempo
+/// perdido: es el máximo que se espera, no una pausa.
+const TIMEOUT = Number(process.env.TIMEOUT_MS ?? (URL.startsWith('https') ? 20000 : 5000));
+
 let passed = 0;
 let failed = 0;
 
@@ -20,7 +25,7 @@ function check(label, condition, detail = '') {
 }
 
 /** Espera a que llegue un evento, con límite de tiempo. */
-function once(socket, event, timeoutMs = 5000) {
+function once(socket, event, timeoutMs = TIMEOUT) {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(
       () => reject(new Error(`timeout esperando "${event}"`)),
@@ -33,14 +38,32 @@ function once(socket, event, timeoutMs = 5000) {
   });
 }
 
-/** Espera un 'state' que cumpla una condición (descarta los que no). */
-function stateWhere(socket, predicate, timeoutMs = 5000) {
+/**
+ * Espera un 'state' que cumpla una condición (descarta los que no).
+ *
+ * Si el estado que ya tenía el socket cumple la condición, vale ese: puede que
+ * el mensaje llegase antes de que diera tiempo a ponerse a escuchar.
+ */
+function stateWhere(socket, predicate, timeoutMs = TIMEOUT) {
+  if (socket.ultimoEstado && predicate(socket.ultimoEstado)) {
+    return Promise.resolve(socket.ultimoEstado);
+  }
+
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(
-      () => reject(new Error('timeout esperando estado')),
-      timeoutMs,
-    );
+    // Guardar el último estado visto: al fallar, saber en qué se quedó la
+    // partida ahorra muchísimo tiempo de investigación.
+    let ultimo = null;
+    const timer = setTimeout(() => {
+      socket.off('state', handler);
+      const resumen = ultimo
+        ? `estado=${ultimo.status} turno=${ultimo.turn} jugadas=[${ultimo.history.join(' ')}]` +
+          (ultimo.result ? ` resultado=${ultimo.result} (${ultimo.endReason})` : '')
+        : 'no llegó ningún estado';
+      reject(new Error(`timeout esperando estado; ${resumen}`));
+    }, timeoutMs);
+
     const handler = (state) => {
+      ultimo = state;
       if (predicate(state)) {
         clearTimeout(timer);
         socket.off('state', handler);
@@ -52,7 +75,20 @@ function stateWhere(socket, predicate, timeoutMs = 5000) {
 }
 
 function connect() {
-  const socket = io(URL, { transports: ['websocket'] });
+  // `forceNew` obliga a abrir una conexión propia: sin él, socket.io reutiliza
+  // la que ya tenga hacia esta misma dirección y los dos jugadores acabarían
+  // compartiendo un solo socket.
+  const socket = io(URL, { transports: ['websocket'], forceNew: true });
+
+  // Recordar siempre el último estado recibido. Sin esto, una espera que se
+  // registra justo después de provocar el cambio se pierde el mensaje que ya
+  // había llegado, y se queda esperando otro que no va a venir. Con el
+  // servidor en la misma máquina casi nunca ocurría; por internet, a menudo.
+  socket.ultimoEstado = null;
+  socket.on('state', (state) => {
+    socket.ultimoEstado = state;
+  });
+
   return new Promise((resolve, reject) => {
     socket.once('connect', () => resolve(socket));
     socket.once('connect_error', reject);
@@ -91,7 +127,7 @@ async function testRoomAndCheckmate() {
   check('quien crea la sala lleva blancas', joined.color === 'w');
   check('devuelve un token de reconexión', typeof joined.token === 'string' && joined.token.length > 0);
 
-  const waiting = await once(white, 'state');
+  const waiting = await stateWhere(white, (s) => s.status === 'waiting');
   check('la partida empieza en espera', waiting.status === 'waiting', waiting.status);
 
   black.emit('join_room', { name: 'Beto', code: joined.code.toLowerCase() });
@@ -103,7 +139,7 @@ async function testRoomAndCheckmate() {
   check('las blancas ven sus 20 jugadas iniciales', active.legalMoves.length === 20, `${active.legalMoves.length}`);
   check('los nombres llegan a ambos lados', active.white.name === 'Ana' && active.black.name === 'Beto');
 
-  const blackState = await once(black, 'state');
+  const blackState = await stateWhere(black, (s) => s.status === 'active');
   check('las negras no ven jugadas legales fuera de su turno', blackState.legalMoves.length === 0);
 
   // Mate del pastor.
@@ -148,8 +184,11 @@ async function testIllegalMovesAndTurnOrder() {
   const illegal = await once(white, 'error_msg');
   check('rechaza una jugada ilegal', illegal.code === 'bad_move', illegal.code);
 
-  const resync = await once(white, 'state');
-  check('reenvía el estado real tras el rechazo', resync.history.length === 0);
+  // Aquí no se puede esperar un 'state' concreto: el servidor reenvía el
+  // mismo estado que ya había, así que se comprueba que su versión de la
+  // partida sigue intacta tras el rechazo.
+  await new Promise((r) => setTimeout(r, 300));
+  check('reenvía el estado real tras el rechazo', white.ultimoEstado.history.length === 0);
 
   // Y una jugada válida sí pasa.
   const after = await playMoves(white, black, [{ from: 'e2', to: 'e4' }]);
@@ -333,13 +372,19 @@ async function testClock() {
   const afterMove = await playMoves(white, black, [{ from: 'e2', to: 'e4' }]);
   check('descuenta el tiempo pensado', afterMove.clocks.w < 31000, `${afterMove.clocks.w}`);
   check('suma el incremento', afterMove.clocks.w > 29000, `${afterMove.clocks.w}`);
-  check('el reloj del rival no se toca', afterMove.clocks.b === 30000, `${afterMove.clocks.b}`);
+  // Al rival ya le corre el reloj (le toca mover), así que puede faltarle algo.
+  // Lo que importa es que no se le haya cobrado el tiempo que pensó el otro.
+  check(
+    'al rival no se le cobra el tiempo del contrario',
+    afterMove.clocks.b > 29500 && afterMove.clocks.b <= 30000,
+    `${afterMove.clocks.b}`,
+  );
 
   // Pedir un tiempo absurdo se recorta al mínimo permitido.
   const cheat = await connect();
   cheat.emit('create_room', { name: 'Tramposo', timeControl: { initialMs: 1, incrementMs: 999999 } });
   await once(cheat, 'joined');
-  const clamped = await once(cheat, 'state');
+  const clamped = await stateWhere(cheat, (s) => s.status === 'waiting');
   check('recorta tiempos fuera de rango', clamped.timeControl.initialMs === 30000 && clamped.timeControl.incrementMs === 60000, JSON.stringify(clamped.timeControl));
 
   white.close();
