@@ -279,6 +279,61 @@ console.log('\nCofres:');
     `vida ${a.hp}/${a.maxHp}`);
 }
 
+console.log('\nLos plomos son enemigos, no rivales:');
+{
+  const arena = new Arena(
+    [
+      { id: 't1', playerId: 'p1', color: '#f00' },
+      { id: 'cpu1', playerId: null, color: CPU_COLOR },
+    ],
+    31,
+    0,
+  );
+  const [jugador, maquina] = arena.tanks;
+  check('el jugador lleva escudo', jugador.defense === 2, `${jugador.defense}`);
+  check('el plomo no lleva ninguno', maquina.defense === 0, `${maquina.defense}`);
+  check('el jugador tiene 5 de vida', jugador.hp === 5, `${jugador.hp}`);
+  check('el plomo aguanta lo mismo que un cofre', maquina.hp === 3, `${maquina.hp}`);
+}
+
+{
+  const arena = new Arena(
+    [
+      { id: 't1', playerId: 'p1', color: '#f00' },
+      { id: 'cpu1', playerId: null, color: CPU_COLOR },
+    ],
+    41,
+    0,
+  );
+  const [jugador, maquina] = arena.tanks;
+  for (let x = 3; x <= 20; x++) { arena.walls[13][x] = 0; arena.walls[12][x] = 0; }
+  jugador.x = 18; jugador.y = 13;
+  maquina.x = 5; maquina.y = 13; maquina.dir = 'right';
+  // Un cofre en la línea de tiro de la máquina.
+  arena.pickups.push({ id: 80, kind: 'attack', x: 9, y: 13, hp: 3 });
+  const ataque = maquina.attack;
+
+  advance(arena, 3000);
+  check('las balas de la máquina no rompen los cofres',
+    arena.pickups.length === 1, `${arena.pickups.length}`);
+  check('y la máquina no se lleva premios', maquina.attack === ataque, `${maquina.attack}`);
+}
+
+{
+  const arena = new Arena(
+    [
+      { id: 't1', playerId: 'p1', color: '#f00' },
+      { id: 'cpu1', playerId: null, color: CPU_COLOR },
+    ],
+    51,
+    0,
+  );
+  const [, maquina] = arena.tanks;
+  maquina.pendingUpgrades = 5;
+  check('la máquina no puede gastar mejoras',
+    arena.applyUpgrade('cpu1', 'attack') === false);
+}
+
 console.log('\nDerribar un plomo da premio:');
 {
   const arena = new Arena(
@@ -292,7 +347,7 @@ console.log('\nDerribar un plomo da premio:');
   const [jugador, maquina] = arena.tanks;
   for (let x = 3; x <= 20; x++) { arena.walls[13][x] = 0; arena.walls[12][x] = 0; }
   jugador.x = 5; jugador.y = 13; jugador.dir = 'right';
-  maquina.x = 9; maquina.y = 13; maquina.hp = 1; maquina.defense = 0;
+  maquina.x = 9; maquina.y = 13; maquina.hp = 1;
 
   tapFire(arena, 't1');
   advance(arena, 600);

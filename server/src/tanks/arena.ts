@@ -86,9 +86,11 @@ export const ARENA = {
   pickupHp: 3,
   /** Cuántos cofres salen si quien crea la sala no dice otra cosa. */
   defaultChests: 3,
-  /** Vida y blindaje con los que empieza cada tanque. */
+  /** Vida y blindaje con los que empieza el tanque de un jugador. */
   startingHp: 5,
   startingDefense: 2,
+  /** Los de la máquina son enemigos simples: aguantan lo mismo que un cofre. */
+  cpuHp: 3,
   /** Cada cuánto adelanta el mundo el servidor. */
   tickMs: 50,
 } as const;
@@ -133,6 +135,11 @@ export class Arena {
     const spots = this.startingSpots(specs.length);
     specs.forEach((spec, i) => {
       const spot = spots[i];
+      // Los de la máquina no llevan blindaje ni recogen premios: son enemigos
+      // que aguantan unos cuantos tiros, no rivales que mejoran.
+      const isCpu = spec.playerId === null;
+      const hp = isCpu ? ARENA.cpuHp : ARENA.startingHp;
+
       this.tanks.push({
         id: spec.id,
         playerId: spec.playerId,
@@ -140,10 +147,10 @@ export class Arena {
         x: spot.x,
         y: spot.y,
         dir: spot.y < ARENA.size / 2 ? 'down' : 'up',
-        hp: ARENA.startingHp,
-        maxHp: ARENA.startingHp,
+        hp,
+        maxHp: hp,
         attack: 1,
-        defense: ARENA.startingDefense,
+        defense: isCpu ? 0 : ARENA.startingDefense,
         alive: true,
         cooldown: 0,
         charging: null,
@@ -168,7 +175,7 @@ export class Arena {
    */
   applyUpgrade(tankId: string, upgrade: Upgrade): boolean {
     const tank = this.tanks.find((t) => t.id === tankId);
-    if (!tank || tank.pendingUpgrades <= 0) return false;
+    if (!tank || tank.playerId === null || tank.pendingUpgrades <= 0) return false;
 
     tank.pendingUpgrades--;
     switch (upgrade) {
@@ -318,8 +325,12 @@ export class Arena {
     if (cell === 2) return false; // el acero aguanta
     // Por los arbustos (3) la bala pasa de largo: solo sirven para esconderse.
 
-    // Los cofres se abren a tiros: el premio es para quien dé el último.
-    for (const pickup of this.pickups) {
+    // Los cofres solo los abren los jugadores. Una bala de la máquina les pasa
+    // de largo: si los reventara, echaría a perder premios que no puede usar.
+    const shooterIsPlayer =
+      this.tanks.find((t) => t.id === bullet.tankId)?.playerId != null;
+
+    for (const pickup of shooterIsPlayer ? this.pickups : []) {
       if (Math.abs(bullet.x - pickup.x) > 0.75 || Math.abs(bullet.y - pickup.y) > 0.75) {
         continue;
       }
@@ -361,7 +372,8 @@ export class Arena {
     const shooter = this.tanks.find((t) => t.id === bullet.tankId);
     if (shooter) {
       shooter.kills++;
-      shooter.pendingUpgrades++;
+      // Solo los jugadores mejoran; la máquina no tiene con qué gastarlo.
+      if (shooter.playerId !== null) shooter.pendingUpgrades++;
     }
 
     // Un tanque de la máquina derribado por un jugador suelta un cofre donde
