@@ -38,7 +38,11 @@ export class TankServer {
       const match = new TankMatch(
         this.freshCode(),
         Number(payload?.tankCount ?? 4),
-        Number(payload?.chestCount ?? ARENA.defaultChests),
+        {
+          life: Number(payload?.chests?.life),
+          defense: Number(payload?.chests?.defense),
+          attack: Number(payload?.chests?.attack),
+        },
       );
       this.matches.set(match.id, match);
 
@@ -84,7 +88,7 @@ export class TankServer {
     socket.on('tank_set_chests', (payload) => {
       const { match, player } = this.find(socket);
       if (!match || !player) return;
-      match.setChestCount(player.token, Number(payload?.chestCount));
+      match.setChestCount(player.token, String(payload?.kind), Number(payload?.count));
       this.sendLobby(match);
     });
 
@@ -214,7 +218,7 @@ export class TankServer {
       code: match.id,
       status: match.status,
       tankCount: match.tankCount,
-      chestCount: match.chestCount,
+      chests: match.chests,
       minTanks: MIN_TANKS,
       maxTanks: MAX_TANKS,
       maxChests: MAX_CHESTS,

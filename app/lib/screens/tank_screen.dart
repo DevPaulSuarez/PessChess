@@ -24,7 +24,7 @@ class _TankScreenState extends State<TankScreen> {
   final _nameController = TextEditingController();
   final _codeController = TextEditingController();
   int _tankCount = 4;
-  int _chestCount = 3;
+  final _chests = {'life': 2, 'defense': 2, 'attack': 2};
 
   /// Lo que el jugador tiene pulsado ahora mismo.
   String? _direction;
@@ -164,35 +164,53 @@ class _TankScreenState extends State<TankScreen> {
                         ?.copyWith(color: Colors.white60),
                   ),
                   const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      IconButton.filledTonal(
-                        onPressed: _chestCount > 0
-                            ? () => setState(() => _chestCount--)
-                            : null,
-                        icon: const Icon(Icons.remove),
-                      ),
-                      Expanded(
-                        child: Text(
-                          '$_chestCount',
-                          textAlign: TextAlign.center,
-                          style: theme.textTheme.headlineMedium,
+                  for (final tipo in const [
+                    ('life', 'Vida', Color(0xFF2FBF71)),
+                    ('defense', 'Escudo', Color(0xFF3A86FF)),
+                    ('attack', 'Arma', Color(0xFFFFBE0B)),
+                  ])
+                    Row(
+                      children: [
+                        Container(
+                          width: 14,
+                          height: 14,
+                          decoration: BoxDecoration(
+                            color: tipo.$3,
+                            borderRadius: BorderRadius.circular(3),
+                          ),
                         ),
-                      ),
-                      IconButton.filledTonal(
-                        onPressed: _chestCount < 10
-                            ? () => setState(() => _chestCount++)
-                            : null,
-                        icon: const Icon(Icons.add),
-                      ),
-                    ],
-                  ),
+                        const SizedBox(width: 10),
+                        Expanded(child: Text(tipo.$2)),
+                        IconButton.filledTonal(
+                          visualDensity: VisualDensity.compact,
+                          onPressed: _chests[tipo.$1]! > 0
+                              ? () => setState(() => _chests[tipo.$1] =
+                                  _chests[tipo.$1]! - 1)
+                              : null,
+                          icon: const Icon(Icons.remove, size: 18),
+                        ),
+                        SizedBox(
+                          width: 34,
+                          child: Text('${_chests[tipo.$1]}',
+                              textAlign: TextAlign.center,
+                              style: theme.textTheme.titleMedium),
+                        ),
+                        IconButton.filledTonal(
+                          visualDensity: VisualDensity.compact,
+                          onPressed: _chests[tipo.$1]! < 10
+                              ? () => setState(() => _chests[tipo.$1] =
+                                  _chests[tipo.$1]! + 1)
+                              : null,
+                          icon: const Icon(Icons.add, size: 18),
+                        ),
+                      ],
+                    ),
                   const SizedBox(height: 24),
 
                   FilledButton.icon(
                     onPressed: () {
                       widget.client.setPlayerName(_nameController.text);
-                      _tanks.create(_nameController.text, _tankCount, _chestCount);
+                      _tanks.create(_nameController.text, _tankCount, _chests);
                     },
                     icon: const Icon(Icons.add),
                     label: const Text('Crear batalla'),
@@ -362,7 +380,10 @@ class _TankScreenState extends State<TankScreen> {
 
                   Padding(
                     padding: const EdgeInsets.only(top: 8),
-                    child: Text('${lobby.chestCount} cofres durante la partida',
+                    child: Text(
+                        'Cofres: ${lobby.chests['life'] ?? 0} de vida, '
+                        '${lobby.chests['defense'] ?? 0} de escudo, '
+                        '${lobby.chests['attack'] ?? 0} de arma',
                         style: theme.textTheme.bodySmall
                             ?.copyWith(color: Colors.white60)),
                   ),

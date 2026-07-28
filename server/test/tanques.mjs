@@ -97,8 +97,8 @@ console.log('\nMoverse:');
 
 {
   const { arena, a } = duel();
-  // Un muro de acero justo delante.
-  arena.walls[13][7] = 2;
+  // Una columna entera de acero: una sola celda se podría rodear.
+  for (let y = 0; y < ARENA.size; y++) arena.walls[y][7] = 2;
   arena.setInput('t1', { dir: 'right', firing: false });
   advance(arena, 2000);
   check('no atraviesa los muros', a.x < 7, `${a.x}`);
@@ -158,13 +158,31 @@ console.log('\nDisparar:');
 
 console.log('\nArbustos:');
 {
-  const { arena, a } = duel();
-  for (let x = 6; x <= 9; x++) arena.walls[13][x] = 3;
-  const x0 = a.x;
-  arena.setInput('t1', { dir: 'right', firing: false });
-  advance(arena, 700);
-  check('se puede entrar en el arbusto', a.x > x0 + 1, `${x0} -> ${a.x}`);
-  check('y el arbusto sigue ahí', arena.walls[13][8] === 3, `${arena.walls[13][8]}`);
+  // Con un tanque de la máquina, que no usa los portales, se ve que el arbusto
+  // no frena: lo atraviesa como si no estuviera.
+  const arena = new Arena(
+    [
+      { id: 't1', playerId: 'p1', color: '#f00' },
+      { id: 'cpu1', playerId: null, color: CPU_COLOR },
+    ],
+    17,
+    {},
+  );
+  const [jugador, maquina] = arena.tanks;
+  for (let x = 3; x <= 20; x++) {
+    for (const y of [12, 13, 14]) arena.walls[y][x] = 0;
+  }
+  for (let x = 8; x <= 11; x++) {
+    for (const y of [12, 13, 14]) arena.walls[y][x] = 3;
+  }
+  jugador.x = 20; jugador.y = 13; // el cebo, para que la máquina venga hacia acá
+  maquina.x = 5; maquina.y = 13;
+
+  advance(arena, 1500);
+  // Si el arbusto frenara, se habría quedado en 7: pegado a su borde. Que esté
+  // dentro demuestra que se puede pasar.
+  check('los arbustos no frenan', maquina.x > 8, `${maquina.x.toFixed(1)}`);
+  check('y siguen ahí después de pasar', arena.walls[13][9] === 3, `${arena.walls[13][9]}`);
 }
 
 {
@@ -209,9 +227,8 @@ console.log('\nEncajar en los pasillos:');
 {
   const { arena, a } = duel();
   for (let y = 0; y < ARENA.size; y++) arena.walls[y][10] = 2;
-  arena.walls[12][10] = 0;
-  arena.walls[13][10] = 0;
-  a.x = 8; a.y = 13.4; // desalineado a propósito
+  for (const y of [12, 13, 14]) arena.walls[y][10] = 0; // pasillo de tres
+  a.x = 8; a.y = 13.6; // desalineado a propósito
 
   arena.setInput('t1', { dir: 'right', firing: false });
   advance(arena, 1500);
@@ -220,7 +237,7 @@ console.log('\nEncajar en los pasillos:');
 
 console.log('\nCofres:');
 {
-  const arena = new Arena([{ id: 't1', playerId: 'p1', color: '#f00' }], 5, 2);
+  const arena = new Arena([{ id: 't1', playerId: 'p1', color: '#f00' }], 5, { attack: 2 });
   check('al principio no hay cofres', arena.pickups.length === 0);
 
   advance(arena, ARENA.pickupEveryMs + 200);
@@ -231,6 +248,9 @@ console.log('\nCofres:');
 
   advance(arena, ARENA.pickupEveryMs * 8);
   check('solo salen los que fijó la sala', arena.pickups.length === 2, `${arena.pickups.length}`);
+  check('y son de la clase pedida',
+    arena.pickups.every((p) => p.kind === 'attack'),
+    arena.pickups.map((p) => p.kind).join());
 }
 
 {
@@ -287,7 +307,7 @@ console.log('\nLos plomos son enemigos, no rivales:');
       { id: 'cpu1', playerId: null, color: CPU_COLOR },
     ],
     31,
-    0,
+    {},
   );
   const [jugador, maquina] = arena.tanks;
   check('el jugador lleva escudo', jugador.defense === 2, `${jugador.defense}`);
@@ -303,7 +323,7 @@ console.log('\nLos plomos son enemigos, no rivales:');
       { id: 'cpu1', playerId: null, color: CPU_COLOR },
     ],
     41,
-    0,
+    {},
   );
   const [jugador, maquina] = arena.tanks;
   for (let x = 3; x <= 20; x++) { arena.walls[13][x] = 0; arena.walls[12][x] = 0; }
@@ -326,7 +346,7 @@ console.log('\nLos plomos son enemigos, no rivales:');
       { id: 'cpu1', playerId: null, color: CPU_COLOR },
     ],
     51,
-    0,
+    {},
   );
   const [, maquina] = arena.tanks;
   maquina.pendingUpgrades = 5;
@@ -342,17 +362,22 @@ console.log('\nDerribar un plomo da premio:');
       { id: 'cpu1', playerId: null, color: CPU_COLOR },
     ],
     77,
-    0, // sin cofres de los que salen solos, para no confundir
+    {}, // sin cofres de los que salen solos, para no confundir
   );
   const [jugador, maquina] = arena.tanks;
   for (let x = 3; x <= 20; x++) { arena.walls[13][x] = 0; arena.walls[12][x] = 0; }
   jugador.x = 5; jugador.y = 13; jugador.dir = 'right';
   maquina.x = 9; maquina.y = 13; maquina.hp = 1;
 
+  const antes = jugador.hp + jugador.maxHp + jugador.attack + jugador.defense;
   tapFire(arena, 't1');
   advance(arena, 600);
   check('el plomo cae', maquina.alive === false);
-  check('y suelta un cofre donde cayó', arena.pickups.length === 1, `${arena.pickups.length}`);
+  check('el premio se da al momento',
+    jugador.hp + jugador.maxHp + jugador.attack + jugador.defense > antes,
+    `${antes} -> ${jugador.hp + jugador.maxHp + jugador.attack + jugador.defense}`);
+  check('y es de una de las tres clases',
+    ['life', 'defense', 'attack'].includes(arena.lastReward), arena.lastReward);
 }
 
 console.log('\nDestruir y mejorar:');
@@ -438,7 +463,7 @@ console.log('\nLa máquina se comporta como un jugador:');
       { id: 'cpu1', playerId: null, color: CPU_COLOR },
     ],
     11,
-    0,
+    {},
   );
   const [jugador, maquina] = arena.tanks;
   // Cara a cara en un pasillo despejado.
@@ -481,8 +506,8 @@ console.log('\nEl campo está bien formado:');
   // Cada bloque de dos por dos debe estar entero o no estar: las salidas de los
   // tanques despejan bloques completos, nunca media esquina.
   let incompletos = 0;
-  for (let y = 3; y < ARENA.size - 3; y += 4) {
-    for (let x = 3; x < ARENA.size - 3; x += 4) {
+  for (let y = 2; y + 2 <= ARENA.size - 2; y += 5) {
+    for (let x = 2; x + 2 <= ARENA.size - 2; x += 5) {
       const celdas = [
         arena.walls[y][x], arena.walls[y][x + 1],
         arena.walls[y + 1][x], arena.walls[y + 1][x + 1],
@@ -492,6 +517,44 @@ console.log('\nEl campo está bien formado:');
     }
   }
   check('no quedan bloques a medias', incompletos === 0, `${incompletos} bloques`);
+}
+
+console.log('\nLos arbustos son portales:');
+{
+  const { arena, a } = duel();
+  // Un arbusto justo delante del tanque del jugador.
+  for (let x = 7; x <= 9; x++) { arena.walls[13][x] = 3; arena.walls[12][x] = 3; }
+  const partida = { x: a.x, y: a.y };
+
+  arena.setInput('t1', { dir: 'right', firing: false });
+  advance(arena, 900);
+  const saltó = Math.abs(a.x - partida.x) > 6 || Math.abs(a.y - partida.y) > 3;
+  check('entrar en el arbusto lleva a otro sitio', saltó,
+    `${partida.x},${partida.y} -> ${a.x.toFixed(1)},${a.y.toFixed(1)}`);
+  check('y no aparece dentro de un arbusto',
+    arena.walls[Math.floor(a.y)][Math.floor(a.x)] === 0,
+    `${arena.walls[Math.floor(a.y)][Math.floor(a.x)]}`);
+}
+
+{
+  const arena = new Arena(
+    [
+      { id: 't1', playerId: 'p1', color: '#f00' },
+      { id: 'cpu1', playerId: null, color: CPU_COLOR },
+    ],
+    61,
+    {},
+  );
+  const maquina = arena.tanks[1];
+  // Rodear al plomo de arbustos: no debe teletransportarse.
+  for (let y = 0; y < ARENA.size; y++) {
+    for (let x = 0; x < ARENA.size; x++) arena.walls[y][x] = 3;
+  }
+  const partida = { x: maquina.x, y: maquina.y };
+  advance(arena, 2000);
+  check('la máquina no usa los portales',
+    Math.abs(maquina.x - partida.x) < 8 && Math.abs(maquina.y - partida.y) < 8,
+    `${partida.x},${partida.y} -> ${maquina.x.toFixed(1)},${maquina.y.toFixed(1)}`);
 }
 
 console.log('\nUna partida entera no se cuelga:');

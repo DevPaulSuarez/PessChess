@@ -20,9 +20,9 @@ final _outputDir = Directory.systemTemp.path;
 /// El mismo reparto de muros que hace el servidor, para ver algo realista.
 List<int> _walls(int size) {
   final walls = List<int>.filled(size * size, 0);
-  for (var y = 3; y < size - 3; y += 4) {
-    for (var x = 3; x < size - 3; x += 4) {
-      final block = (x - 3) ~/ 4 + (y - 3) ~/ 4;
+  for (var y = 2; y + 2 <= size - 2; y += 5) {
+    for (var x = 2; x + 2 <= size - 2; x += 5) {
+      final block = (x - 2) ~/ 5 + (y - 2) ~/ 5;
       final cell = block % 5 == 2 ? 3 : (block % 3 == 0 ? 2 : 1);
       for (var dy = 0; dy < 2; dy++) {
         for (var dx = 0; dx < 2; dx++) {
@@ -71,7 +71,7 @@ void main() {
     final world = TankWorld(
       status: 'playing',
       size: size,
-      tankSize: 1.5,
+      tankSize: 2.0,
       yourTankId: 't0',
       tanks: [
         _tank(id: 't0', color: 0xFFE5383B, name: 'Ana', x: 2, y: 2, dir: 'down'),

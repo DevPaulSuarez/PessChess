@@ -57,8 +57,8 @@ export class TankMatch {
   /** Cuántos tanques habrá en total; los que sobren los lleva la máquina. */
   tankCount: number;
 
-  /** Cuántos cofres saldrán durante la partida. */
-  chestCount: number;
+  /** Cuántos cofres de cada clase saldrán durante la partida. */
+  chests: Record<'life' | 'defense' | 'attack', number>;
 
   players: TankPlayer[] = [];
   status: MatchStatus = 'lobby';
@@ -77,10 +77,18 @@ export class TankMatch {
    */
   wallsDirty = true;
 
-  constructor(id: string, tankCount: number, chestCount: number = ARENA.defaultChests) {
+  constructor(
+    id: string,
+    tankCount: number,
+    chests: Partial<Record<'life' | 'defense' | 'attack', number>> = {},
+  ) {
     this.id = id;
     this.tankCount = clampTanks(tankCount);
-    this.chestCount = clampChests(chestCount);
+    this.chests = {
+      life: clampChests(chests.life ?? ARENA.defaultChests.life),
+      defense: clampChests(chests.defense ?? ARENA.defaultChests.defense),
+      attack: clampChests(chests.attack ?? ARENA.defaultChests.attack),
+    };
   }
 
   // -------------------------------------------------------------------------
@@ -136,9 +144,10 @@ export class TankMatch {
     return true;
   }
 
-  setChestCount(token: string, count: number): boolean {
+  setChestCount(token: string, kind: string, count: number): boolean {
     if (this.status !== 'lobby' || this.hostToken !== token) return false;
-    this.chestCount = clampChests(count);
+    if (kind !== 'life' && kind !== 'defense' && kind !== 'attack') return false;
+    this.chests[kind] = clampChests(count);
     return true;
   }
 
@@ -179,7 +188,7 @@ export class TankMatch {
       specs.push({ id: `cpu${i}`, playerId: null, color: CPU_COLOR });
     }
 
-    this.arena = new Arena(specs, Date.now(), this.chestCount);
+    this.arena = new Arena(specs, Date.now(), this.chests);
     this.status = 'playing';
     this.wallsDirty = true;
     return true;
@@ -247,7 +256,7 @@ export function hexOf(colorId: string): string {
 }
 
 function clampChests(count: number): number {
-  if (!Number.isFinite(count)) return ARENA.defaultChests;
+  if (!Number.isFinite(count)) return 2;
   return Math.min(MAX_CHESTS, Math.max(0, Math.round(count)));
 }
 

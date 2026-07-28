@@ -124,7 +124,7 @@ class TankLobby {
   const TankLobby({
     required this.code,
     required this.tankCount,
-    required this.chestCount,
+    required this.chests,
     required this.minTanks,
     required this.maxTanks,
     required this.maxChests,
@@ -138,7 +138,9 @@ class TankLobby {
 
   final String code;
   final int tankCount;
-  final int chestCount;
+
+  /// Cuántos cofres de cada clase saldrán: 'life', 'defense' y 'attack'.
+  final Map<String, int> chests;
   final int minTanks;
   final int maxTanks;
   final int maxChests;
@@ -158,7 +160,8 @@ class TankLobby {
   factory TankLobby.fromJson(Map<String, dynamic> json) => TankLobby(
         code: json['code'] as String,
         tankCount: json['tankCount'] as int,
-        chestCount: json['chestCount'] as int? ?? 3,
+        chests: ((json['chests'] as Map?) ?? {})
+            .map((k, v) => MapEntry(k as String, (v as num).toInt())),
         minTanks: json['minTanks'] as int,
         maxTanks: json['maxTanks'] as int,
         maxChests: json['maxChests'] as int? ?? 10,
@@ -300,12 +303,12 @@ class TankClient extends ChangeNotifier {
 
   // -------------------------------------------------------------------------
 
-  void create(String name, int tankCount, int chestCount) {
+  void create(String name, int tankCount, Map<String, int> chests) {
     _reset();
     _socket?.emit('tank_create', {
       'name': name,
       'tankCount': tankCount,
-      'chestCount': chestCount,
+      'chests': chests,
     });
   }
 

@@ -51,6 +51,8 @@ export interface Tank {
   cooldown: number;
   /** Milisegundos que lleva pulsado el disparo, o null si no está cargando. */
   charging: number | null;
+  /** Espera antes de que un arbusto vuelva a teletransportarlo. */
+  teleportCooldown: number;
   kills: number;
   /** Mejoras ganadas por destruir tanques y aún sin gastar. */
   pendingUpgrades: number;
@@ -68,24 +70,32 @@ export interface Bullet {
 /** 0 vacío, 1 ladrillo (se rompe), 2 acero (no se rompe), 3 arbusto. */
 export type Cell = 0 | 1 | 2 | 3;
 
+const BLOCK_ORIGIN = 2;
+const BLOCK_SIZE = 2;
+/** Bloque más pasillo: el hueco de tres es lo que deja circular al tanque. */
+const BLOCK_STEP = BLOCK_SIZE + 3;
+
 export const ARENA = {
   /** El campo es cuadrado y se mide en celdas. */
   size: 26,
   /**
-   * Los pasillos miden dos celdas. Con el tanque a 1.5 quedan 0.5 de holgura,
-   * suficiente para entrar sin tener que alinearse al milímetro.
+   * El tanque mide lo mismo que un bloque de ladrillo. Para que quepa, los
+   * pasillos se hicieron de tres celdas: así queda una celda de holgura y se
+   * entra sin pelearse con el alineamiento.
    */
-  tankSize: 1.5,
+  tankSize: BLOCK_SIZE,
   tankSpeed: 6, // celdas por segundo
   bulletSpeed: 18,
   bulletCooldown: 400, // ms
   /** Cuánto hay que mantener pulsado para que el disparo salga cargado. */
   chargeMs: 550,
+  /** Tras salir de un portal, no vuelve a teletransportarse en este tiempo. */
+  teleportCooldownMs: 2000,
   /** Cada cuánto sale un cofre y cuánto aguanta antes de reventar. */
   pickupEveryMs: 9000,
   pickupHp: 3,
-  /** Cuántos cofres salen si quien crea la sala no dice otra cosa. */
-  defaultChests: 3,
+  /** Cuántos cofres de cada clase salen si no se dice otra cosa. */
+  defaultChests: { life: 2, defense: 2, attack: 2 },
   /** Vida y blindaje con los que empieza el tanque de un jugador. */
   startingHp: 5,
   startingDefense: 2,
@@ -115,8 +125,11 @@ export class Arena {
   private nextBulletId = 1;
   private nextPickupId = 1;
   private sincePickup = 0;
-  /** Cofres que quedan por salir. Los fija quien crea la sala. */
-  private chestsLeft: number;
+  /** Lo último que soltó un plomo derribado, para poder avisar en pantalla. */
+  lastReward: PickupKind | null = null;
+
+  /** Cofres que quedan por salir, ya barajados. Los fija quien crea la sala. */
+  private chestQueue: PickupKind[] = [];
   /**
    * Reloj propio, en milisegundos de mundo. No se usa `Date.now()` porque el
    * mundo avanza a saltos que no tienen por qué coincidir con el tiempo real:
@@ -127,9 +140,23 @@ export class Arena {
   /** Semilla propia para que una partida se pueda repetir igual en pruebas. */
   private seed: number;
 
-  constructor(specs: TankSpec[], seed = Date.now(), chests: number = ARENA.defaultChests) {
+  constructor(
+    specs: TankSpec[],
+    seed = Date.now(),
+    chests: Partial<Record<PickupKind, number>> = {},
+  ) {
     this.seed = seed >>> 0;
-    this.chestsLeft = Math.max(0, Math.round(chests));
+
+    // La lista de cofres pendientes se baraja: si salieran todos los de vida
+    // primero y luego los de escudo, sería previsible y aburrido.
+    for (const kind of ['life', 'defense', 'attack'] as const) {
+      const count = Math.max(0, Math.round(chests[kind] ?? 0));
+      for (let i = 0; i < count; i++) this.chestQueue.push(kind);
+    }
+    for (let i = this.chestQueue.length - 1; i > 0; i--) {
+      const j = this.random(i + 1);
+      [this.chestQueue[i], this.chestQueue[j]] = [this.chestQueue[j], this.chestQueue[i]];
+    }
     this.walls = this.buildWalls();
 
     const spots = this.startingSpots(specs.length);
@@ -154,6 +181,7 @@ export class Arena {
         alive: true,
         cooldown: 0,
         charging: null,
+        teleportCooldown: 0,
         kills: 0,
         pendingUpgrades: 0,
       });
@@ -211,9 +239,12 @@ export class Arena {
         : this.cpuInput(tank);
       if (!input) continue;
 
+      tank.teleportCooldown = Math.max(0, tank.teleportCooldown - deltaMs);
+
       if (input.dir) {
         tank.dir = input.dir;
         this.moveTank(tank, input.dir, ARENA.tankSpeed * dt);
+        this.maybeTeleport(tank);
       }
       this.handleTrigger(tank, input.firing, deltaMs);
     }
@@ -267,6 +298,29 @@ export class Arena {
         }
         return;
       }
+    }
+  }
+
+  /**
+   * Los arbustos son portales: meterse en uno deja al tanque en otro punto del
+   * campo, al azar. Solo funciona con los tanques de jugadores; si la máquina
+   * saltase de un lado a otro, no habría quien la siguiera.
+   */
+  private maybeTeleport(tank: Tank): void {
+    if (tank.playerId === null || tank.teleportCooldown > 0) return;
+    if (this.walls[Math.floor(tank.y)]?.[Math.floor(tank.x)] !== 3) return;
+
+    for (let attempt = 0; attempt < 60; attempt++) {
+      const x = this.random(ARENA.size - 4) + 2 + 0.5;
+      const y = this.random(ARENA.size - 4) + 2 + 0.5;
+      // Nada de aparecer dentro de otro arbusto: encadenaría saltos sin fin.
+      if (this.walls[Math.floor(y)][Math.floor(x)] !== 0) continue;
+      if (!this.tankFits(tank, x, y)) continue;
+
+      tank.x = x;
+      tank.y = y;
+      tank.teleportCooldown = ARENA.teleportCooldownMs;
+      return;
     }
   }
 
@@ -376,11 +430,12 @@ export class Arena {
       if (shooter.playerId !== null) shooter.pendingUpgrades++;
     }
 
-    // Un tanque de la máquina derribado por un jugador suelta un cofre donde
-    // cayó. Los cofres sueltos no cuentan contra los que fijó la sala: son
-    // premio por el derribo.
+    // Derribar a un tanque de la máquina da premio al momento, y sale al azar:
+    // más vida, más pegada o más escudo.
     if (target.playerId === null && shooter?.playerId) {
-      this.dropChest(target.x, target.y);
+      const kinds: PickupKind[] = ['life', 'defense', 'attack'];
+      this.lastReward = kinds[this.random(kinds.length)];
+      this.grant(shooter, this.lastReward);
     }
   }
 
@@ -393,7 +448,7 @@ export class Arena {
    * azar: más pegada, más vida o más blindaje.
    */
   private spawnPickups(deltaMs: number): void {
-    if (this.chestsLeft <= 0) return;
+    if (this.chestQueue.length === 0) return;
     this.sincePickup += deltaMs;
     if (this.sincePickup < ARENA.pickupEveryMs) return;
     this.sincePickup = 0;
@@ -409,18 +464,16 @@ export class Arena {
         continue;
       }
 
-      this.dropChest(x, y);
-      this.chestsLeft--;
+      this.dropChest(x, y, this.chestQueue.shift()!);
       return;
     }
   }
 
-  /** Deja un cofre en un sitio concreto, con lo que dará al azar. */
-  private dropChest(x: number, y: number): void {
-    const kinds: PickupKind[] = ['life', 'defense', 'attack'];
+  /** Deja un cofre en un sitio concreto. */
+  private dropChest(x: number, y: number, kind: PickupKind): void {
     this.pickups.push({
       id: this.nextPickupId++,
-      kind: kinds[this.random(kinds.length)],
+      kind,
       x,
       y,
       hp: ARENA.pickupHp,
@@ -628,17 +681,18 @@ export class Arena {
     const n = ARENA.size;
     const walls: Cell[][] = Array.from({ length: n }, () => Array<Cell>(n).fill(0));
 
-    for (let y = 3; y < n - 3; y += 4) {
-      for (let x = 3; x < n - 3; x += 4) {
-        // Uno de cada tres bloques es de acero, contando por posición de bloque
-        // y no por coordenada: los bloques van de cuatro en cuatro, así que
-        // mirar la coordenada daba siempre el mismo resto y no salía ninguno.
-        const block = (x - 3) / 4 + (y - 3) / 4;
+    for (let y = BLOCK_ORIGIN; y + BLOCK_SIZE <= n - BLOCK_ORIGIN; y += BLOCK_STEP) {
+      for (let x = BLOCK_ORIGIN; x + BLOCK_SIZE <= n - BLOCK_ORIGIN; x += BLOCK_STEP) {
+        // Se cuenta por posición de bloque y no por coordenada: como los
+        // bloques van de tantas en tantas celdas, mirar la coordenada daba
+        // siempre el mismo resto y no salía nunca ni uno de acero.
+        const block =
+          (x - BLOCK_ORIGIN) / BLOCK_STEP + (y - BLOCK_ORIGIN) / BLOCK_STEP;
         // Uno de cada tres bloques es de acero y uno de cada cinco, arbustos:
         // no frenan, pero tapan a quien se meta dentro.
         const cell: Cell = block % 5 === 2 ? 3 : block % 3 === 0 ? 2 : 1;
-        for (let dy = 0; dy < 2; dy++) {
-          for (let dx = 0; dx < 2; dx++) {
+        for (let dy = 0; dy < BLOCK_SIZE; dy++) {
+          for (let dx = 0; dx < BLOCK_SIZE; dx++) {
             walls[y + dy][x + dx] = cell;
           }
         }
@@ -666,10 +720,12 @@ export class Arena {
 
   /** Borra el bloque de dos por dos al que pertenece una celda. */
   private clearBlockAt(cx: number, cy: number): void {
-    const originX = 3 + Math.floor((cx - 3) / 4) * 4;
-    const originY = 3 + Math.floor((cy - 3) / 4) * 4;
-    for (let dy = 0; dy < 2; dy++) {
-      for (let dx = 0; dx < 2; dx++) {
+    const originX =
+      BLOCK_ORIGIN + Math.floor((cx - BLOCK_ORIGIN) / BLOCK_STEP) * BLOCK_STEP;
+    const originY =
+      BLOCK_ORIGIN + Math.floor((cy - BLOCK_ORIGIN) / BLOCK_STEP) * BLOCK_STEP;
+    for (let dy = 0; dy < BLOCK_SIZE; dy++) {
+      for (let dx = 0; dx < BLOCK_SIZE; dx++) {
         if (this.walls[originY + dy]?.[originX + dx] !== undefined) {
           this.walls[originY + dy][originX + dx] = 0;
         }
