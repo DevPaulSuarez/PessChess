@@ -1,6 +1,7 @@
 import type { RuleEngine } from './engine.js';
 import { ChessRules } from './chess.js';
 import { DraughtsRules } from './draughts.js';
+import { ReversiRules } from './reversi.js';
 
 /**
  * Los juegos que ofrece el servidor.
@@ -12,6 +13,7 @@ import { DraughtsRules } from './draughts.js';
 export const GAMES = {
   chess: { name: 'Ajedrez', create: () => new ChessRules() },
   draughts: { name: 'Damas', create: () => new DraughtsRules() },
+  reversi: { name: 'Reversi', create: () => new ReversiRules() },
 } as const satisfies Record<string, { name: string; create: () => RuleEngine }>;
 
 export type GameKind = keyof typeof GAMES;

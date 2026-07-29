@@ -54,6 +54,27 @@ class BoardColors {
   /// así que cada una lleva el contrario del suelo que pisa.
   static const hintOnLight = Color(0x59000000);
   static const hintOnDark = Color(0x73FFFFFF);
+
+  /// El reversi se juega sobre paño verde, no sobre casillas blancas y negras:
+  /// con las fichas blancas y negras, un tablero a cuadros las escondería.
+  static const feltLight = Color(0xFF2E7D55);
+  static const feltDark = Color(0xFF27694A);
+
+  static Color square(GameKind game, bool isLight) {
+    if (game == GameKind.reversi) return isLight ? feltLight : feltDark;
+    return isLight ? light : dark;
+  }
+
+  /// Color de las coordenadas del borde, legible sobre la casilla que sea.
+  static Color label(GameKind game, bool isLight) {
+    if (game == GameKind.reversi) return const Color(0x99FFFFFF);
+    return isLight ? dark : light;
+  }
+
+  static Color hint(GameKind game, bool isLight) {
+    if (game == GameKind.reversi) return hintOnDark;
+    return isLight ? hintOnLight : hintOnDark;
+  }
 }
 
 /// El tablero interactivo.
@@ -114,6 +135,14 @@ class _ChessBoardState extends State<ChessBoard> {
   Future<void> _handleTap(String square, Map<String, Piece> pieces) async {
     if (!_state.isYourTurn) return;
 
+    // Si lo que toca es colocar, la jugada es la casilla misma: se juega al
+    // primer toque y no hay nada que seleccionar antes.
+    final placements = _state.placements;
+    if (placements.isNotEmpty) {
+      if (placements.contains(square)) widget.onMove(square, square, null);
+      return;
+    }
+
     // ¿Es un destino válido de la pieza ya seleccionada?
     if (_selected != null) {
       final candidates = _state
@@ -165,14 +194,23 @@ class _ChessBoardState extends State<ChessBoard> {
   @override
   Widget build(BuildContext context) {
     final pieces = parseFen(_state.fen);
-    final destinations = _selected == null
-        ? <String>{}
-        : {
-            ..._state.movesFrom(_selected!).map((m) => m.to),
-            // La torre con la que se puede enrocar también se marca, para que
-            // se vea que tocarla vale.
-            ..._castlingByRook(_selected!).keys,
-          };
+    final placements = _state.placements;
+
+    // Las colocaciones se marcan siempre, sin tocar nada antes: no salen de
+    // ninguna pieza, así que no habría forma de descubrirlas.
+    final Set<String> destinations;
+    if (placements.isNotEmpty) {
+      destinations = placements;
+    } else if (_selected == null) {
+      destinations = const {};
+    } else {
+      destinations = {
+        ..._state.movesFrom(_selected!).map((m) => m.to),
+        // La torre con la que se puede enrocar también se marca, para que se
+        // vea que tocarla vale.
+        ..._castlingByRook(_selected!).keys,
+      };
+    }
     final checkedKing = _checkedKingSquare(pieces);
     final lastMove = _state.lastMove;
 
@@ -280,8 +318,8 @@ class _Square extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final base = isLight ? BoardColors.light : BoardColors.dark;
-    final labelColor = isLight ? BoardColors.dark : BoardColors.light;
+    final base = BoardColors.square(game, isLight);
+    final labelColor = BoardColors.label(game, isLight);
 
     return GestureDetector(
       onTap: onTap,
@@ -350,7 +388,7 @@ class _Square extends StatelessWidget {
   /// Marca de destino posible: un aro alrededor de lo que se puede capturar y
   /// un punto en las casillas vacías.
   Widget _hint() {
-    final color = isLight ? BoardColors.hintOnLight : BoardColors.hintOnDark;
+    final color = BoardColors.hint(game, isLight);
 
     return IgnorePointer(
       key: const ValueKey('destino'),

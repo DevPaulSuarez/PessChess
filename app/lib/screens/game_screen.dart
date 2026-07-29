@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../models/game_state.dart';
 import '../services/game_client.dart';
 import '../widgets/chess_board.dart';
+import '../widgets/piece_shapes.dart';
 
 /// Formatea un reloj: mm:ss normalmente y, por debajo de 10 segundos, con la
 /// décima, que es cuando de verdad importa verla.
@@ -166,6 +167,8 @@ class _GameScreenState extends State<GameScreen> {
     final clocks = _client.displayClocks;
     final opponentColor = state.yourColor.opposite;
     final drawOfferFromOpponent = state.drawOfferFrom == opponentColor;
+    // Contar las fichas solo tiene sentido donde ganan las que más tenga.
+    final showsScore = state.game == GameKind.reversi;
 
     return Scaffold(
       body: SafeArea(
@@ -190,7 +193,13 @@ class _GameScreenState extends State<GameScreen> {
                           children: [
                             _PlayerBar(
                               player: state.opponent,
+                              game: state.game,
                               color: opponentColor,
+                              // En reversi el marcador cambia en cada jugada y
+                              // es lo único que dice quién va ganando.
+                              discs: showsScore
+                                  ? state.pieceCount(opponentColor)
+                                  : null,
                               clockMs: clocks?[opponentColor],
                               isTurn: state.turn == opponentColor &&
                                   state.status == GameStatus.active,
@@ -213,7 +222,11 @@ class _GameScreenState extends State<GameScreen> {
                             const SizedBox(height: 8),
                             _PlayerBar(
                               player: state.you,
+                              game: state.game,
                               color: state.yourColor,
+                              discs: showsScore
+                                  ? state.pieceCount(state.yourColor)
+                                  : null,
                               clockMs: clocks?[state.yourColor],
                               isTurn: state.isYourTurn,
                               isYou: true,
@@ -326,17 +339,23 @@ class _TopBar extends StatelessWidget {
 class _PlayerBar extends StatelessWidget {
   const _PlayerBar({
     required this.player,
+    required this.game,
     required this.color,
     required this.clockMs,
     required this.isTurn,
     required this.isYou,
+    this.discs,
   });
 
   final PlayerView player;
+  final GameKind game;
   final PieceColor color;
   final int? clockMs;
   final bool isTurn;
   final bool isYou;
+
+  /// Fichas sobre el tablero, si en este juego cuentan. Null si no.
+  final int? discs;
 
   @override
   Widget build(BuildContext context) {
@@ -358,15 +377,13 @@ class _PlayerBar extends StatelessWidget {
       ),
       child: Row(
         children: [
-          // Un peón del color que lleva el jugador, para no dudar nunca.
-          Text(
-            color == PieceColor.white ? '♙' : '♟',
-            style: TextStyle(
-              fontSize: 22,
-              color: color == PieceColor.white ? Colors.white : Colors.black87,
-              shadows: color == PieceColor.white
-                  ? null
-                  : const [Shadow(color: Colors.white24, blurRadius: 2)],
+          // Una pieza del color que lleva el jugador, con la forma del juego
+          // que se esté jugando, para no dudar nunca de qué bando eres.
+          SizedBox(
+            width: 24,
+            height: 24,
+            child: CustomPaint(
+              painter: PiecePainter(type: 'p', color: color, game: game),
             ),
           ),
           const SizedBox(width: 10),
@@ -394,6 +411,20 @@ class _PlayerBar extends StatelessWidget {
               ],
             ),
           ),
+          if (discs != null)
+            Padding(
+              padding: const EdgeInsets.only(right: 10),
+              child: Text(
+                '$discs',
+                // Las pruebas lo buscan por aquí: un número suelto en pantalla
+                // se confunde con las coordenadas del tablero.
+                key: ValueKey('marcador-${color.code}'),
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
           if (clockMs != null)
             Container(
               padding:

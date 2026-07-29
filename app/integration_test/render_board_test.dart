@@ -143,6 +143,58 @@ void main() {
     }
   });
 
+  testWidgets('guarda una imagen del reversi', (tester) async {
+    // La posición inicial, con las cuatro colocaciones marcadas, y una partida
+    // avanzada para ver el tablero lleno de discos.
+    const inicio = '8/8/8/3pP3/3Pp3/8/8/8 w - - 0 1';
+    const media = '8/2pppp2/2pPPPp1/2pPpPp1/2pPPPp1/3ppp2/8/8 w - - 0 20';
+
+    // Las marcas de colocación solo se dibujan en la posición inicial, que es
+    // de la que se conocen las jugadas.
+    for (final (nombre, fen, conMarcas) in [
+      ('reversi', inicio, true),
+      ('reversi_media', media, false),
+    ]) {
+      final key = GlobalKey();
+      await tester.pumpWidget(MaterialApp(
+        debugShowCheckedModeBanner: false,
+        home: Scaffold(
+          backgroundColor: const Color(0xFF14110F),
+          body: Center(
+            child: RepaintBoundary(
+              key: key,
+              child: SizedBox(
+                width: 560,
+                height: 560,
+                child: ChessBoard(
+                  state: _state(fen, game: 'reversi', legalMoves: [
+                    if (conMarcas)
+                      for (final square in ['c5', 'd6', 'e3', 'f4'])
+                        {'from': square, 'to': square, 'san': square},
+                  ]),
+                  onMove: (_, _, _) {},
+                  askPromotion: () async => null,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ));
+      await tester.pump(const Duration(milliseconds: 300));
+
+      final boundary =
+          key.currentContext!.findRenderObject()! as RenderRepaintBoundary;
+      ByteData? png;
+      await tester.runAsync(() async {
+        final image = await boundary.toImage(pixelRatio: 2);
+        png = await image.toByteData(format: ui.ImageByteFormat.png);
+        image.dispose();
+      });
+      File('$_outputDir/$nombre.png').writeAsBytesSync(png!.buffer.asUint8List());
+      debugPrint('Guardado $_outputDir/$nombre.png');
+    }
+  });
+
   testWidgets('tira de contraste', (tester) async {
     // Cada tipo de pieza, de los dos colores, sobre los dos colores de casilla.
     // Es la comprobación de que un bando no desaparece sobre su propio color.

@@ -433,6 +433,114 @@ void main() {
       });
     });
 
+    group('Reversi', () {
+      // Las cuatro fichas cruzadas del centro.
+      const inicio = '8/8/8/3pP3/3Pp3/8/8/8 w - - 0 1';
+
+      /// Las cuatro aperturas de las blancas, tal y como las manda el servidor:
+      /// una jugada que empieza y acaba en la misma casilla.
+      List<Map<String, dynamic>> aperturas() => [
+            for (final square in ['c5', 'd6', 'e3', 'f4'])
+              {'from': square, 'to': square, 'san': square},
+          ];
+
+      testWidgets('dibuja las cuatro fichas del centro', (tester) async {
+        await tester.pumpWidget(_wrap(ChessBoard(
+          state: _state(fen: inicio, game: 'reversi'),
+          onMove: (_, _, _) {},
+          askPromotion: () async => null,
+        )));
+
+        final pieces = _paintedPieces(tester);
+        expect(pieces.length, 4);
+        expect(pieces.every((p) => p.game == GameKind.reversi), isTrue,
+            reason: 'Deben dibujarse como discos, no como piezas de ajedrez');
+        expect(pieces.where((p) => p.color == PieceColor.white).length, 2);
+        expect(pieces.where((p) => p.color == PieceColor.black).length, 2);
+      });
+
+      testWidgets('marca dónde se puede colocar sin tocar nada antes',
+          (tester) async {
+        await tester.pumpWidget(_wrap(ChessBoard(
+          state: _state(fen: inicio, game: 'reversi', legalMoves: aperturas()),
+          onMove: (_, _, _) {},
+          askPromotion: () async => null,
+        )));
+
+        // En ajedrez hay que seleccionar una pieza para ver sus destinos; una
+        // colocación no sale de ninguna pieza, así que se enseñan de entrada.
+        expect(_destinationHints(tester), 4);
+      });
+
+      testWidgets('colocar es un solo toque', (tester) async {
+        String? from, to;
+
+        await tester.pumpWidget(_wrap(ChessBoard(
+          state: _state(fen: inicio, game: 'reversi', legalMoves: aperturas()),
+          onMove: (f, t, _) {
+            from = f;
+            to = t;
+          },
+          askPromotion: () async => null,
+        )));
+
+        await tester.tap(find.byKey(const ValueKey('square-d6')));
+        await tester.pump();
+
+        expect(from, 'd6');
+        expect(to, 'd6', reason: 'La jugada empieza y acaba en la casilla');
+      });
+
+      testWidgets('tocar una casilla que no vale no manda nada',
+          (tester) async {
+        var jugadas = 0;
+
+        await tester.pumpWidget(_wrap(ChessBoard(
+          state: _state(fen: inicio, game: 'reversi', legalMoves: aperturas()),
+          onMove: (_, _, _) => jugadas++,
+          askPromotion: () async => null,
+        )));
+
+        // Ni una casilla vacía cualquiera, ni una ficha propia: en reversi las
+        // fichas no se seleccionan, porque no se mueven.
+        await tester.tap(find.byKey(const ValueKey('square-a1')));
+        await tester.pump();
+        await tester.tap(find.byKey(const ValueKey('square-e5')));
+        await tester.pump();
+
+        expect(jugadas, 0);
+        expect(_destinationHints(tester), 4,
+            reason: 'Las marcas siguen siendo las mismas cuatro');
+      });
+
+      test('el marcador cuenta las fichas de cada bando', () {
+        // Tras la primera jugada de las blancas: cuatro contra una.
+        final state = _state(
+            fen: '8/8/3P4/3PP3/3Pp3/8/8/8 b - - 0 2', game: 'reversi');
+        expect(state.pieceCount(PieceColor.white), 4);
+        expect(state.pieceCount(PieceColor.black), 1);
+      });
+
+      test('el final por recuento se explica', () {
+        final ganada = _state(
+          game: 'reversi',
+          status: 'finished',
+          result: '1-0',
+          endReason: 'final_count',
+        );
+        expect(ganada.outcomeMessage, contains('¡Has ganado!'));
+        expect(ganada.outcomeMessage, contains('recuento final'));
+
+        final tablas = _state(
+          game: 'reversi',
+          status: 'finished',
+          result: '1/2-1/2',
+          endReason: 'final_count',
+        );
+        expect(tablas.outcomeMessage, contains('Tablas'));
+      });
+    });
+
     testWidgets('el tablero se gira para las negras', (tester) async {
       await tester.pumpWidget(_wrap(ChessBoard(
         state: _state(

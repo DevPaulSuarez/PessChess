@@ -22,11 +22,23 @@ enum GameKind {
     description: 'Comes si quieres, y la dama recorre la diagonal entera.',
     emoji: '⛃',
   ),
+  reversi(
+    code: 'reversi',
+    name: 'Reversi',
+    description: 'Encierra las fichas del rival y dales la vuelta.',
+    emoji: '⚫',
+  ),
   tanks(
     code: 'tanks',
     name: 'Tanques',
     description: 'Batalla en tiempo real. Elige color, destruye y mejora.',
     emoji: '🛡️',
+  ),
+  sky(
+    code: 'sky',
+    name: 'Sky Warriors United',
+    description: 'Matamarcianos. Elige país, vuela y gánate al jefe de verdad.',
+    emoji: '✈️',
   );
 
   const GameKind({
@@ -197,6 +209,31 @@ class GameState {
   List<LegalMove> movesFrom(String square) =>
       legalMoves.where((m) => m.from == square).toList();
 
+  /// Casillas en las que se puede colocar una ficha nueva.
+  ///
+  /// En los juegos de colocar, como el reversi, la jugada no va de una casilla
+  /// a otra: empieza y acaba donde se pone la ficha. Eso es lo que distingue
+  /// una colocación de un movimiento, sin que el tablero tenga que saber a qué
+  /// se está jugando.
+  Set<String> get placements => {
+        for (final move in legalMoves)
+          if (move.from == move.to) move.to,
+      };
+
+  /// Cuántas fichas tiene un bando sobre el tablero. En reversi es el marcador.
+  int pieceCount(PieceColor color) {
+    final wantsUpper = color == PieceColor.white;
+    var total = 0;
+
+    for (final char in fen.split(' ').first.split('')) {
+      // Los dígitos son huecos y las barras separan filas: solo cuentan las
+      // letras, y su caja dice de quién es la ficha.
+      if (char.toLowerCase() == char.toUpperCase()) continue;
+      if ((char == char.toUpperCase()) == wantsUpper) total++;
+    }
+    return total;
+  }
+
   factory GameState.fromJson(Map<String, dynamic> json) {
     final rawClocks = json['clocks'] as Map<String, dynamic>?;
     final rawDrawOffer = json['drawOfferFrom'] as String?;
@@ -246,6 +283,7 @@ class GameState {
       'timeout' => 'se acabó el tiempo',
       'blocked' => 'sin fichas ni jugadas posibles',
       'no_progress' => 'nadie avanzaba',
+      'final_count' => 'recuento final',
       'resignation' => 'abandono',
       'draw_agreed' => 'acuerdo entre jugadores',
       'abandoned' => 'partida abandonada',

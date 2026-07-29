@@ -125,6 +125,20 @@ String readRoomCode(WidgetTester tester) {
   return code;
 }
 
+/// Elige un juego en la lista de la primera pantalla.
+///
+/// Desde que hay más de un juego, la app abre con la lista y no con el
+/// formulario de la sala, así que hay que pasar por aquí antes de nada.
+Future<void> pickGame(WidgetTester tester, String name) async {
+  await pumpUntilText(tester, name);
+  await tester.tap(find.text(name));
+  await pumpUntilText(tester, 'Crear partida');
+}
+
+/// El marcador de fichas de un bando ('w' o 'b'), tal y como se ve en pantalla.
+String readScore(WidgetTester tester, String color) =>
+    tester.widget<Text>(find.byKey(ValueKey('marcador-$color'))).data!;
+
 Future<void> tapSquare(WidgetTester tester, String square) async {
   final finder = find.byKey(ValueKey('square-$square'));
   expect(finder, findsOneWidget, reason: 'No se encontró la casilla $square');
@@ -162,6 +176,7 @@ void main() {
 
     // --- El jugador 1 crea la sala desde la interfaz -----------------------
     expect(find.text('PessChess'), findsOneWidget);
+    await pickGame(tester, 'Ajedrez');
 
     await tester.enterText(find.byType(TextField).first, 'Ana');
     await tester.pump();
@@ -244,6 +259,7 @@ void main() {
 
     app.main();
     await tester.pump(const Duration(seconds: 2));
+    await pickGame(tester, 'Ajedrez');
 
     await tester.enterText(find.byType(TextField).first, 'Ana');
     await tester.pump();
@@ -259,9 +275,66 @@ void main() {
     expect(find.textContaining('abandono'), findsWidgets);
   });
 
+  testWidgets('una partida de reversi se juega colocando fichas',
+      (tester) async {
+    final opponent = await Opponent.connect();
+    addTearDown(opponent.dispose);
+
+    app.main();
+    await tester.pump(const Duration(seconds: 2));
+    await pickGame(tester, 'Reversi');
+
+    await tester.enterText(find.byType(TextField).first, 'Ana');
+    await tester.pump();
+    await tester.tap(find.text('Crear partida'));
+    await pumpUntilText(tester, 'Comparte este código');
+
+    opponent.joinRoom(readRoomCode(tester), 'Beto');
+    await opponent.waitFor('que la partida arrancase', (s) => s['status'] == 'active');
+    await pumpUntilText(tester, 'Te toca mover');
+
+    // Dos fichas cada uno al empezar: el marcador es lo que dice quién gana.
+    expect(readScore(tester, 'w'), '2');
+    expect(readScore(tester, 'b'), '2');
+
+    // --- Colocar es un solo toque, sin seleccionar nada antes ---------------
+    await tapSquare(tester, 'd6');
+
+    final colocada =
+        await opponent.waitFor('la primera ficha', (s) => s['history'].isNotEmpty);
+    expect(colocada['history'], ['d6']);
+    await pumpUntilText(tester, 'Mueve tu rival');
+
+    // Cuatro blancas contra una negra: la de d5 ha cambiado de bando.
+    expect(readScore(tester, 'w'), '4');
+    expect(readScore(tester, 'b'), '1');
+
+    // --- El rival responde y le da la vuelta a una ------------------------
+    opponent.move('e6', 'e6');
+    await pumpUntilText(tester, 'Te toca mover');
+    expect(find.text('1. d6 e6'), findsOneWidget);
+
+    // --- Tocar donde no se encierra nada no hace nada ----------------------
+    await tapSquare(tester, 'a1');
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.text('1. d6 e6'), findsOneWidget,
+        reason: 'El tablero no debía cambiar');
+
+    await tapSquare(tester, 'f4');
+    final tercera =
+        await opponent.waitFor('la tercera ficha', (s) => s['history'].length == 3);
+    expect(tercera['history'], ['d6', 'e6', 'f4']);
+
+    // --- Y el final se anuncia igual que en los demás juegos ---------------
+    opponent.resign();
+    await pumpUntilText(tester, '¡Has ganado!');
+    expect(find.textContaining('abandono'), findsWidgets);
+  });
+
   testWidgets('un código inexistente avisa sin romper nada', (tester) async {
     app.main();
     await tester.pump(const Duration(seconds: 2));
+    await pickGame(tester, 'Ajedrez');
 
     await tester.enterText(find.byType(TextField).first, 'Ana');
     await tester.pump();

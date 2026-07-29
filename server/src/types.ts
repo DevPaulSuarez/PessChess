@@ -29,7 +29,9 @@ export type EndReason =
   | 'fifty_move_rule'
   // Damas.
   | 'blocked'
-  | 'no_progress';
+  | 'no_progress'
+  // Reversi.
+  | 'final_count';
 
 /** '1-0' blancas ganan, '0-1' negras ganan, '1/2-1/2' tablas. */
 export type Result = '1-0' | '0-1' | '1/2-1/2';

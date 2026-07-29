@@ -468,6 +468,53 @@ async function testDraughts() {
   black.close();
 }
 
+async function testReversi() {
+  console.log('\nUna partida de reversi por la red:');
+  const white = await connect();
+  const black = await connect();
+
+  white.emit('create_room', { name: 'Ana', game: 'reversi', timeControl: null });
+  const joined = await once(white, 'joined');
+  black.emit('join_room', { name: 'Beto', code: joined.code });
+  await once(black, 'joined');
+
+  const active = await stateWhere(white, (s) => s.status === 'active');
+  check('la sala es de reversi', active.game === 'reversi', active.game);
+  check(
+    'el tablero empieza con las cuatro fichas cruzadas',
+    active.fen.split(' ')[0] === '8/8/8/3pP3/3Pp3/8/8/8',
+    active.fen.split(' ')[0],
+  );
+  check('hay cuatro sitios donde abrir', active.legalMoves.length === 4,
+    `${active.legalMoves.length}`);
+  check(
+    'las jugadas son colocaciones: salen y llegan a la misma casilla',
+    active.legalMoves.every((m) => m.from === m.to),
+    active.legalMoves.map((m) => `${m.from}-${m.to}`).join(),
+  );
+
+  // Colocar donde no se encierra nada no es jugada.
+  white.emit('move', { from: 'a1', to: 'a1' });
+  const rechazada = await once(white, 'error_msg');
+  check('rechaza colocar donde no se voltea nada',
+    rechazada.code === 'bad_move', rechazada.code);
+
+  const tras = await playMoves(white, black, [
+    { from: 'd6', to: 'd6' },
+    { from: 'e6', to: 'e6' },
+  ]);
+  check('las jugadas se anotan con la casilla',
+    tras.history.join(' ') === 'd6 e6', tras.history.join(' '));
+  check(
+    'cada bando le ha dado la vuelta a una ficha del otro',
+    tras.fen.split(' ')[0] === '8/8/3Pp3/3Pp3/3Pp3/8/8/8',
+    tras.fen.split(' ')[0],
+  );
+
+  white.close();
+  black.close();
+}
+
 async function testGamesAreSeparate() {
   console.log('\nLos juegos no se mezclan:');
   const a = await connect();
@@ -509,6 +556,7 @@ const suites = [
   testBadRoomCode,
   testClock,
   testDraughts,
+  testReversi,
   testGamesAreSeparate,
 ];
 

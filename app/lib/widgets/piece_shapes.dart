@@ -203,6 +203,39 @@ void _paintDraughtsPiece(Canvas canvas, String type, Paint fill, Paint stroke) {
   stroke.style = PaintingStyle.stroke;
 }
 
+/// Ficha de reversi: un disco liso, más grande que el de damas porque aquí las
+/// fichas se tocan entre sí y el tablero se llena.
+///
+/// No lleva el contorno del color contrario: sobre el paño verde las dos caras
+/// se distinguen solas, y un aro blanco alrededor de cada ficha negra ensuciaría
+/// un tablero que acaba con sesenta y cuatro.
+void _paintReversiDisc(Canvas canvas, bool isWhite, Paint fill) {
+  const centre = Offset(0.5, 0.5);
+  const radius = 0.40;
+
+  // Sombra bajo la ficha, para que se vea apoyada sobre el paño.
+  canvas.drawCircle(
+    centre.translate(0.015, 0.025),
+    radius,
+    Paint()
+      ..color = Colors.black.withValues(alpha: 0.35)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 0.02),
+  );
+
+  canvas.drawCircle(centre, radius, fill);
+
+  // Canto: un borde tenue del mismo tono que la cara, que le da grosor sin
+  // convertirse en un aro de color contrario.
+  canvas.drawCircle(
+    centre,
+    radius,
+    Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 0.02
+      ..color = isWhite ? const Color(0x33000000) : const Color(0x33FFFFFF),
+  );
+}
+
 /// Pinta una pieza rellena, con contorno del color contrario para que se
 /// distinga igual de bien sobre casillas claras y oscuras.
 class PiecePainter extends CustomPainter {
@@ -257,6 +290,12 @@ class PiecePainter extends CustomPainter {
       ..strokeWidth = 0.022
       ..strokeJoin = StrokeJoin.round
       ..color = _stroke;
+
+    if (game == GameKind.reversi) {
+      _paintReversiDisc(canvas, _isWhite, fillPaint);
+      canvas.restore();
+      return;
+    }
 
     if (game == GameKind.draughts) {
       _paintDraughtsPiece(canvas, type, fillPaint, strokePaint);
