@@ -5,6 +5,7 @@ import 'screens/game_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/launcher_screen.dart';
 import 'screens/tank_screen.dart';
+import 'sky/red/sky_red_screen.dart';
 import 'services/game_client.dart';
 
 void main() {
@@ -88,6 +89,15 @@ class _PessChessAppState extends State<PessChessApp> {
           // jugadores, así que no pasan por la pantalla de las salas normales.
           if (chosen == GameKind.tanks) {
             return TankScreen(
+              client: _client,
+              onBack: () => setState(() => _chosen = null),
+            );
+          }
+
+          // El matamarcianos tiene su propia sala y su propio protocolo, así
+          // que no pasa por la pantalla de partidas.
+          if (chosen == GameKind.sky) {
+            return SkyRedScreen(
               client: _client,
               onBack: () => setState(() => _chosen = null),
             );

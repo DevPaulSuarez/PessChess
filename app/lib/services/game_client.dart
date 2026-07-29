@@ -1,11 +1,13 @@
 import 'dart:async';
 import 'dart:io' show Platform;
+import 'dart:math' show Random;
 
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 
 import '../models/game_state.dart';
+import '../sky/red/sky_client.dart';
 import 'tank_client.dart';
 
 enum ConnectionStatus { offline, connecting, online }
@@ -20,6 +22,13 @@ class GameClient extends ChangeNotifier {
   static const _prefPlayerName = 'player_name';
   static const _prefGameId = 'game_id';
   static const _prefGameToken = 'game_token';
+
+  /// Quién es este móvil para el matamarcianos, entre partidas.
+  ///
+  /// No es una cuenta ni identifica a nadie: es un número al azar que sirve
+  /// para que el servidor sepa a qué piloto le pertenecen los países que lleva
+  /// desbloqueados.
+  static const _prefPilotId = 'sky_pilot_id';
 
   /// Servidor al que se conecta la app si el jugador no ha puesto otro.
   ///
@@ -52,6 +61,9 @@ class GameClient extends ChangeNotifier {
   /// Las partidas de tanques hablan por el mismo socket pero con su propio
   /// protocolo, así que tienen su propio cliente.
   final tanks = TankClient();
+
+  /// Y el matamarcianos, igual: mismo socket, protocolo aparte.
+  final sky = SkyClient();
 
   Timer? _ticker;
 
@@ -87,8 +99,24 @@ class GameClient extends ChangeNotifier {
     _prefs = await SharedPreferences.getInstance();
     _serverUrl = _prefs!.getString(_key(_prefServerUrl)) ?? defaultServerUrl;
     _playerName = _prefs!.getString(_key(_prefPlayerName)) ?? '';
+    sky.pilotId = await _pilotId();
     notifyListeners();
     connect();
+  }
+
+  /// El identificador de este móvil como piloto.
+  ///
+  /// Se crea la primera vez y se queda guardado: es lo que ata el progreso del
+  /// matamarcianos a quien lo ha jugado. Si se borra, se empieza de cero con
+  /// los dos países de salida.
+  Future<String> _pilotId() async {
+    final guardado = _prefs?.getString(_key(_prefPilotId));
+    if (guardado != null && guardado.isNotEmpty) return guardado;
+
+    final nuevo = '${DateTime.now().microsecondsSinceEpoch.toRadixString(36)}'
+        '-${Random().nextInt(1 << 32).toRadixString(36)}';
+    await _prefs?.setString(_key(_prefPilotId), nuevo);
+    return nuevo;
   }
 
   void connect() {
@@ -108,6 +136,7 @@ class GameClient extends ChangeNotifier {
     );
     _socket = socket;
     tanks.rebind(socket);
+    sky.rebind(socket);
 
     socket.onConnect((_) {
       _connection = ConnectionStatus.online;
