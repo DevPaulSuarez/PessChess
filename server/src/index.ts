@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { Server, type Socket } from 'socket.io';
 
@@ -7,6 +8,9 @@ import { GameManager } from './rooms.js';
 import { GAMES, isGameKind, type GameKind } from './rules/registry.js';
 import { TankServer } from './tanks/sockets.js';
 import { MapStore } from './tanks/maps.js';
+import { SkyServer } from './sky/sockets.js';
+import { ProgresoStore } from './sky/progreso.js';
+import { DatosStore } from './sky/datos.js';
 import type { Game } from './game.js';
 import type {
   CreateRoomPayload,
@@ -40,20 +44,41 @@ const io = new Server(httpServer, {
 
 const manager = new GameManager();
 const tanks = new TankServer(io, maps);
+/** Lo que cada piloto lleva desbloqueado en el matamarcianos. */
+const progresoSky = new ProgresoStore(process.env.SKY_FILE ?? 'data/sky.json');
+
+/** Los retoques hechos a países y escenarios desde el editor. */
+const datosSky = new DatosStore(process.env.SKY_DATOS_FILE ?? 'data/sky-datos.json');
+const sky = new SkyServer(io, progresoSky, datosSky);
 /** En qué partida está cada socket, para no buscarla en cada mensaje. */
 const socketGame = new Map<string, string>();
 
 app.get('/health', (_req, res) => {
   // `games` es cuántas partidas hay abiertas; `offers`, a qué se puede jugar.
-  res.json({ ok: true, ...manager.stats, ...tanks.stats, offers: [...Object.keys(GAMES), 'tanks'] });
+  res.json({
+    ok: true,
+    ...manager.stats,
+    ...tanks.stats,
+    ...sky.stats,
+    offers: [...Object.keys(GAMES), 'tanks', 'sky'],
+  });
 });
 
 // ---------------------------------------------------------------------------
-// El editor de mapas
+// Páginas que se sirven tal cual, sin nada que compilar
 // ---------------------------------------------------------------------------
 
-// La página del editor se sirve tal cual, sin nada que compilar.
+// El editor de mapas de los tanques y el de Sky Warriors.
 app.use('/editor', express.static('public/editor'));
+
+// El motor del matamarcianos, solo para que el editor enseñe la vista previa
+// con los mismos dibujos que usa el juego. Es la alternativa a copiar aquí el
+// dibujo de veintiuna naves y ocho banderas y verlos separarse con el tiempo.
+app.use('/editor/motor', express.static('sky-motor'));
+
+/** Los dibujos que se suben para las naves. */
+const NAVES_DIR = process.env.SKY_NAVES_DIR ?? 'data/naves';
+app.use('/sky-naves', express.static(NAVES_DIR, { maxAge: '1h' }));
 
 app.get('/api/maps', (_req, res) => {
   res.json(maps.list());
@@ -76,8 +101,97 @@ app.delete('/api/maps/:id', (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// El editor de Sky Warriors: países, naves, balas, banderas y escenarios
+// ---------------------------------------------------------------------------
+
+app.get('/api/sky/datos', async (_req, res) => {
+  res.json({
+    paises: await datosSky.paises(),
+    stages: await datosSky.stages(),
+    editados: datosSky.editados,
+  });
+});
+
+app.put('/api/sky/paises/:id', async (req, res) => {
+  const result = await datosSky.guardarPais(req.params.id, req.body ?? {});
+  if (!result.ok) return void res.status(400).json({ error: result.error });
+  res.json(result.pais);
+});
+
+app.put('/api/sky/stages/:id', async (req, res) => {
+  const result = await datosSky.guardarStage(req.params.id, req.body ?? {});
+  if (!result.ok) return void res.status(400).json({ error: result.error });
+  res.json(result.stage);
+});
+
+/**
+ * El dibujo propio de una nave.
+ *
+ * Llega en crudo, no en base64: una imagen convertida a texto ocupa un tercio
+ * más y no gana nada. Se comprueba por los primeros bytes que de verdad es una
+ * imagen, porque la extensión la pone quien sube el fichero y no significa
+ * nada.
+ */
+app.put(
+  '/api/sky/naves/:paisId/:indice/imagen',
+  express.raw({ type: ['image/png', 'image/jpeg'], limit: '600kb' }),
+  async (req, res) => {
+    const bytes = req.body;
+    if (!Buffer.isBuffer(bytes) || bytes.length === 0) {
+      return void res.status(400).json({ error: 'No llegó ninguna imagen.' });
+    }
+
+    const tipo = tipoDeImagen(bytes);
+    if (!tipo) {
+      return void res.status(400).json({ error: 'Eso no es un PNG ni un JPG.' });
+    }
+
+    const indice = Number(req.params.indice);
+    const nombre = `${req.params.paisId}-${indice}-${Date.now()}.${tipo}`;
+    try {
+      mkdirSync(NAVES_DIR, { recursive: true });
+      writeFileSync(`${NAVES_DIR}/${nombre}`, bytes);
+    } catch {
+      return void res.status(500).json({ error: 'No se pudo guardar la imagen.' });
+    }
+
+    const result = await datosSky.guardarImagenNave(req.params.paisId, indice, `/sky-naves/${nombre}`);
+    if (!result.ok) return void res.status(400).json({ error: result.error });
+    res.json(result.pais);
+  },
+);
+
+/** Quitar el dibujo propio y volver a la silueta de siempre. */
+app.delete('/api/sky/naves/:paisId/:indice/imagen', async (req, res) => {
+  const result = await datosSky.guardarImagenNave(req.params.paisId, Number(req.params.indice), null);
+  if (!result.ok) return void res.status(400).json({ error: result.error });
+  res.json(result.pais);
+});
+
+/** Devolver un país o un escenario a como está en el código. */
+app.post('/api/sky/restaurar', (req, res) => {
+  const tipo = req.body?.tipo === 'stages' ? 'stages' : 'paises';
+  datosSky.restaurar(tipo, req.body?.id);
+  res.json({ ok: true, editados: datosSky.editados });
+});
+
+// ---------------------------------------------------------------------------
 // Utilidades
 // ---------------------------------------------------------------------------
+
+/**
+ * Qué imagen es, mirando sus primeros bytes.
+ *
+ * La extensión y el tipo que declara quien sube el fichero se pueden poner a
+ * mano; la firma del formato, no.
+ */
+function tipoDeImagen(bytes: Buffer): 'png' | 'jpg' | null {
+  if (bytes.length > 8 && bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) {
+    return 'png';
+  }
+  if (bytes.length > 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'jpg';
+  return null;
+}
 
 function fail(socket: Socket, code: ErrorPayload['code'], message: string): void {
   socket.emit('error_msg', { code, message } satisfies ErrorPayload);
@@ -138,6 +252,9 @@ io.on('connection', (socket) => {
   // Los tanques van por su cuenta: es un juego en tiempo real y no encaja en
   // la maquinaria por turnos del ajedrez y las damas.
   tanks.register(socket);
+
+  // El matamarcianos, igual: el mundo avanza solo y nadie espera turno.
+  sky.register(socket);
 
   socket.on('create_room', (payload: CreateRoomPayload) => {
     manager.leaveQueue(socket.id);

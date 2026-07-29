@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Editor de Sky Warriors · PessChess</title>
+<style>
+  :root {
+    --fondo: #0b1026;
+    --panel: #141a35;
+    --borde: #2b3358;
+    --texto: #eef1ff;
+    --apagado: #98a0c8;
+    --acento: #4fc3f7;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--fondo);
+    color: var(--texto);
+    font: 15px/1.5 system-ui, -apple-system, sans-serif;
+    padding: 24px;
+  }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  p.ayuda { color: var(--apagado); margin: 0 0 18px; font-size: 13px; }
+
+  .columnas { display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start; }
+  aside { width: 240px; }
+  main { flex: 1; min-width: 320px; max-width: 560px; }
+
+  fieldset { border: 1px solid var(--borde); border-radius: 8px; padding: 12px; margin: 0 0 16px; }
+  legend { color: var(--apagado); font-size: 12px; padding: 0 6px; }
+
+  label { display: block; font-size: 12px; color: var(--apagado); margin: 10px 0 3px; }
+  input, select {
+    width: 100%; padding: 7px 9px; border-radius: 6px;
+    border: 1px solid var(--borde); background: #0d1330; color: var(--texto);
+    font: inherit;
+  }
+  input[type=color] { padding: 2px; height: 34px; }
+  .fila { display: flex; gap: 8px; }
+  .fila > * { flex: 1; }
+
+  ul.lista { list-style: none; margin: 0; padding: 0; max-height: 70vh; overflow: auto; }
+  ul.lista li {
+    padding: 7px 10px; border-radius: 6px; cursor: pointer; font-size: 14px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  ul.lista li:hover { background: #1b2247; }
+  ul.lista li.activo { background: var(--acento); color: #06122a; font-weight: 600; }
+  ul.lista li .marca { margin-left: auto; font-size: 11px; opacity: .8; }
+
+  canvas.vista { background: #070a18; border-radius: 8px; border: 1px solid var(--borde); }
+  .vistas { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+
+  button {
+    padding: 9px 14px; border-radius: 8px; border: 0; font: inherit; font-weight: 600;
+    background: var(--acento); color: #06122a; cursor: pointer;
+  }
+  button.suave { background: transparent; color: var(--apagado); border: 1px solid var(--borde); }
+  .acciones { display: flex; gap: 10px; margin-top: 8px; }
+
+  #aviso { margin-top: 12px; font-size: 13px; min-height: 20px; }
+  #aviso.mal { color: #ff8a80; }
+  #aviso.bien { color: #a5d6a7; }
+
+  nav.pestanas { display: flex; gap: 8px; margin-bottom: 16px; }
+  nav.pestanas button { background: transparent; color: var(--apagado); border: 1px solid var(--borde); }
+  nav.pestanas button.activo { background: var(--acento); color: #06122a; }
+</style>
+</head>
+<body>
+
+<h1>Editor de Sky Warriors</h1>
+<p class="ayuda">
+  Lo que cambies se guarda encima de los datos del juego, sin tocarlos: puedes
+  volver al original cuando quieras. Los cambios valen desde la partida
+  siguiente; no hace falta reiniciar el servidor.
+</p>
+
+<nav class="pestanas">
+  <button id="tabPaises" class="activo">Países y naves</button>
+  <button id="tabStages">Escenarios</button>
+</nav>
+
+<div class="columnas">
+  <aside>
+    <fieldset>
+      <legend id="tituloLista">Países</legend>
+      <ul class="lista" id="lista"></ul>
+    </fieldset>
+  </aside>
+
+  <main id="panel"></main>
+</div>
+
+<script type="module" src="sky-editor.js"></script>
+</body>
+</html>

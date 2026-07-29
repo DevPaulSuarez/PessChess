@@ -9,8 +9,13 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "test:damas": "node test/damas.mjs",
+    "test:reversi": "node test/reversi.mjs",
+    "test:sky": "node test/sky.mjs",
+    "test:sky-sim": "node test/sky-simulacion.mjs",
     "test:tanques": "node test/tanques.mjs",
-    "test:tanques-red": "node test/tanques-red.mjs"
+    "test:tanques-red": "node test/tanques-red.mjs",
+    "test:sky-red": "node test/sky-red.mjs",
+    "test:sky-editor": "node test/sky-editor.mjs"
   },
   "keywords": [],
   "author": "",
